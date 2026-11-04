@@ -35,6 +35,7 @@ const publicUrl = process.env['PUBLIC_URL'] ?? process.env['RENDER_EXTERNAL_URL'
 const app = createApp({ payments, proof, fleet, lastDate, mode: sample ? 'sample' : 'sandbox', publicUrl, explain: (verdict) => explainer.explain(verdict) });
 const verifyWebhook = createWebhookVerifier({ webhookId: process.env['PAYPAL_WEBHOOK_ID'] });
 
-createServer(createHandler({ payments, verifyWebhook, app })).listen(port, () => {
+// Render requires binding to 0.0.0.0: https://render.com/docs/web-services
+createServer(createHandler({ payments, verifyWebhook, app })).listen(port, '0.0.0.0', () => {
   console.log(`Proof Before Pay on ${publicUrl} (${sample ? 'sample mode' : 'PayPal sandbox'})`);
 });
