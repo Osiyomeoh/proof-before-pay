@@ -1,0 +1,143 @@
+{
+  "ranAt": "2026-11-04T22:15:12.088Z",
+  "kept": 7,
+  "total": 8,
+  "tokens": 7759,
+  "results": [
+    {
+      "date": "2020-10-08",
+      "status": "HOLD",
+      "reasons": [
+        "DAY_BELOW_FLOOR"
+      ],
+      "ms": 6744,
+      "source": "model",
+      "explanation": "Payment is on hold because this inverter's output on 2020-10-08 fell well below the minimum allowed threshold. On that date this inverter produced only 2.7 kWh while the peer median was 42 kWh, giving a share of 11% against the minimum allowed day share of 30%. The six preceding days all showed normal shares between 95% and 108%, making the drop on 2020-10-08 stand out sharply.",
+      "installerQuestion": "Could you please investigate why this inverter's output dropped to 2.7 kWh on 2020-10-08, when the peer median that day was 42 kWh, and let us know what you find?",
+      "model": "claude-sonnet-4-6",
+      "templateReason": null,
+      "usage": {
+        "inputTokens": 942,
+        "outputTokens": 168
+      }
+    },
+    {
+      "date": "2020-10-12",
+      "status": "HOLD",
+      "reasons": [
+        "MEAN_TOO_LOW",
+        "DAY_BELOW_FLOOR"
+      ],
+      "ms": 5614,
+      "source": "model",
+      "explanation": "Payment is on hold because this inverter's output over the 7-day window raises concerns that need to be resolved before funds are released. The average share of peers' output was 31%, well below the required minimum of 70%. On 5 days — 2020-10-08 through 2020-10-12 — this inverter's share fell below the 30% daily floor, including 4 days of zero output while peers continued generating normally.",
+      "installerQuestion": "Could you please investigate why this inverter produced no output on 2020-10-09, 2020-10-10, 2020-10-11, and 2020-10-12, and only 2.7 kWh on 2020-10-08, given that the other inverters on the same roof were generating normally across all of those dates?",
+      "model": "claude-sonnet-4-6",
+      "templateReason": null,
+      "usage": {
+        "inputTokens": 989,
+        "outputTokens": 196
+      }
+    },
+    {
+      "date": "2020-10-23",
+      "status": "HOLD",
+      "reasons": [
+        "MEAN_TOO_LOW",
+        "DAY_BELOW_FLOOR"
+      ],
+      "ms": 5199,
+      "source": "model",
+      "explanation": "Payment is on hold because this inverter's output is too low compared with its peers. Its average share over the review window is 24%, well below the required 70%, and it produced zero output on five consecutive days (2020-10-17 through 2020-10-21) against a peer median ranging from 47.6 to 57.9 kWh on those same days. All five of those days fall below the minimum allowed daily share of 30%.",
+      "installerQuestion": "Could you please investigate why this inverter recorded zero output on 2020-10-17, 2020-10-18, 2020-10-19, 2020-10-20, and 2020-10-21, given that its peers were producing normally on each of those days?",
+      "model": "claude-sonnet-4-6",
+      "templateReason": null,
+      "usage": {
+        "inputTokens": 987,
+        "outputTokens": 181
+      }
+    },
+    {
+      "date": "2020-11-18",
+      "status": "HOLD",
+      "reasons": [
+        "DAY_BELOW_FLOOR"
+      ],
+      "ms": 4869,
+      "source": "model",
+      "explanation": "Payment is on hold because this inverter did not meet the minimum performance threshold on one day in the review window. On 2020-11-12, this inverter produced 0 kWh while the peer median was 59.5 kWh, giving a share of 0% against the minimum allowed of 30%. The 7-day average share of 78% is otherwise above the required 70%.",
+      "installerQuestion": "Could you please look into why this inverter produced 0 kWh on 2020-11-12, when the peer median output that day was 59.5 kWh, and let us know what you find?",
+      "model": "claude-sonnet-4-6",
+      "templateReason": null,
+      "usage": {
+        "inputTokens": 942,
+        "outputTokens": 152
+      }
+    },
+    {
+      "date": "2020-11-19",
+      "status": "RELEASE_READY",
+      "reasons": [],
+      "ms": 4390,
+      "source": "model",
+      "explanation": "The payment can be released. Over the 7-day window, this inverter's average share of its peers' output was 92%, well above the required minimum of 70%, and no single day fell below the 30% daily threshold. Although this inverter's share on 2020-11-13 was 54%, it still cleared the 30% floor, so no hold was triggered.",
+      "installerQuestion": null,
+      "model": "claude-sonnet-4-6",
+      "templateReason": null,
+      "usage": {
+        "inputTokens": 915,
+        "outputTokens": 97
+      }
+    },
+    {
+      "date": "2019-03-25",
+      "status": "HOLD",
+      "reasons": [
+        "MISSING_DATA",
+        "NOT_ENOUGH_HISTORY"
+      ],
+      "ms": 4730,
+      "source": "model",
+      "explanation": "Payment is on hold because the check cannot be completed. Peer comparison data is missing for 2019-03-19 through 2019-03-24, and this inverter has 0 days of performance history when 30 are required.",
+      "installerQuestion": "Could you please confirm why peer output data is unavailable for this inverter from 2019-03-19 to 2019-03-24, and let us know when the required 30 days of performance history will be available so the payment check can proceed?",
+      "model": "claude-sonnet-4-6",
+      "templateReason": null,
+      "usage": {
+        "inputTokens": 964,
+        "outputTokens": 123
+      }
+    },
+    {
+      "date": "2020-01-12",
+      "status": "HOLD",
+      "reasons": [
+        "PEERS_DOWN"
+      ],
+      "ms": 5777,
+      "source": "model",
+      "explanation": "Payment is on hold because the peer data needed to verify this inverter's output is unavailable on 2020-01-12, so the check cannot be completed. On that date this inverter produced 4.8 kWh against a peer median of 0 kWh with 4.78 kWh/m² of measured sun, making a fair comparison impossible. No action is needed on the inverter's own output figures, which looked consistent with peers across the previous six days.",
+      "installerQuestion": "Could you please check whether the other inverters on the same roof were operating and reporting correctly on 2020-01-12, as their recorded output was 0 kWh on that date and we need their data to complete the payment check?",
+      "model": "claude-sonnet-4-6",
+      "templateReason": null,
+      "usage": {
+        "inputTokens": 932,
+        "outputTokens": 171
+      }
+    },
+    {
+      "date": "2021-12-08",
+      "status": "HOLD",
+      "reasons": [
+        "PEERS_DOWN",
+        "FLEET_LOW_FOR_SUN"
+      ],
+      "ms": 5649,
+      "source": "template",
+      "model": null,
+      "templateReason": "NAMES_A_CAUSE",
+      "usage": null,
+      "explanation": "This payment stays on hold, and no money has moved. On Dec 8, 2021 this inverter showed 12.6 kWh, and the other inverters on the roof showed a median of 18.5 kWh. The other inverters on the roof were at or near zero on 2 days from Dec 5, 2021 to Dec 7, 2021, so they can't be used as a comparison.",
+      "installerQuestion": "Could you explain this inverter's production from Dec 2, 2021 to Dec 8, 2021, and share its monitoring logs for those dates?"
+    }
+  ]
+}
