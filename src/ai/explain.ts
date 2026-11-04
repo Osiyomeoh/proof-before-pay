@@ -3,6 +3,7 @@
 // model no tools, and returns only text. The UI must take the status from the verdict, not from here.
 // Every answer is checked against the evidence, and a plain template replaces any that fails, so
 // the panel is never empty and also works without AWS credentials.
+import { niceDate, percent, reasonSentence } from '../proof/describe.ts';
 import { DEFAULT_RULES } from '../proof/engine.ts';
 import type { EvidenceDay, HoldReason, Verdict } from '../proof/engine.ts';
 
@@ -25,6 +26,7 @@ export type CreateMessage = (request: ModelRequest) => Promise<ModelReply>;
 
 export type TemplateReason =
   | 'NO_MODEL'
+  | 'CALL_LIMIT'
   | 'CALL_FAILED'
   | 'REFUSED'
   | 'CUT_OFF'
@@ -37,7 +39,7 @@ export type TemplateReason =
   | 'CONTRADICTS_HOLD';
 
 export type Explanation = {
-  source: 'model' | 'template';
+  source: 'model' | 'recorded' | 'template';
   explanation: string;
   // null when the verdict is RELEASE_READY, since there is nothing to ask.
   installerQuestion: string | null;
@@ -69,7 +71,6 @@ const SCHEMA: Record<string, unknown> = {
 };
 
 const round = (value: number, places: number) => Number(value.toFixed(places));
-const percent = (ratio: number | null) => (ratio === null || !Number.isFinite(ratio) ? null : Math.round(ratio * 100));
 
 function reasonEvidence(reason: HoldReason): Record<string, unknown> {
   switch (reason.code) {
@@ -133,47 +134,6 @@ export function reviewAnswer(verdict: Verdict, evidenceJson: string, explanation
   return null;
 }
 
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-function niceDate(iso: string): string {
-  const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  const month = match?.[2] === undefined ? undefined : MONTHS[Number(match[2]) - 1];
-  return match?.[1] === undefined || match[3] === undefined || month === undefined ? iso : `${month} ${Number(match[3])}, ${match[1]}`;
-}
-
-function dateList(dates: readonly string[]): string {
-  const first = dates[0];
-  const last = dates.at(-1);
-  if (first === undefined || last === undefined) return 'some days';
-  return first === last ? niceDate(first) : `${dates.length} days from ${niceDate(first)} to ${niceDate(last)}`;
-}
-
-function reasonSentence(reason: HoldReason): string {
-  switch (reason.code) {
-    case 'INVALID_DATE':
-      return 'The date to check is not valid.';
-    case 'UNKNOWN_UNIT':
-      return 'This inverter is not in the production data.';
-    case 'TOO_FEW_PEERS':
-      return `Only ${reason.have} other inverters are available to compare with, and the check needs ${reason.need}.`;
-    case 'MISSING_DATA':
-      return `Readings are missing for ${dateList(reason.dates)}, and missing data never counts as a pass.`;
-    case 'PEERS_DOWN':
-      return `The other inverters on the roof were at or near zero on ${dateList(reason.dates)}, so they can't be used as a comparison.`;
-    case 'NOT_ENOUGH_HISTORY':
-      return `This inverter has ${reason.have} days of history, and the check needs ${reason.need}.`;
-    case 'NO_BASELINE':
-      return 'There is not enough past data to work out this inverter\'s usual share of output.';
-    case 'BASELINE_DEGRADED':
-      return `This inverter's usual share has fallen to ${percent(reason.drift)}% of its earliest level, below the ${percent(reason.min)}% limit.`;
-    case 'MEAN_TOO_LOW':
-      return `Over the window it averaged ${percent(reason.mean)}% of its usual share, below the ${percent(reason.min)}% limit.`;
-    case 'DAY_BELOW_FLOOR':
-      return `It fell below ${percent(reason.min)}% of its usual share on ${dateList(reason.dates)}.`;
-    case 'FLEET_LOW_FOR_SUN':
-      return `The whole roof made ${percent(reason.ratio)}% of its usual output for the measured sun, below the ${percent(reason.min)}% limit.`;
-  }
-}
-
 function dayFact(day: EvidenceDay | undefined): string {
   if (day === undefined) return '';
   const kwh = day.kwh === null ? 'no reading' : `${round(day.kwh, 1)} kWh`;
@@ -201,15 +161,23 @@ export function templateExplanation(verdict: Verdict, reason: TemplateReason): E
   };
 }
 
-export type ExplainerOptions = { create: CreateMessage | null; model: string };
+export type ExplainerOptions = {
+  create: CreateMessage | null;
+  model: string;
+  // The demo is public and each model call costs money, so calls stop here and the template takes over.
+  maxCalls?: number;
+};
 
 export function createExplainer(options: ExplainerOptions) {
-  const { create, model } = options;
+  const { create, model, maxCalls = Number.POSITIVE_INFINITY } = options;
+  let calls = 0;
   // A verdict for a unit and date never changes, so each one costs at most one model call.
   const saved = new Map<string, Promise<Explanation>>();
 
   async function ask(verdict: Verdict): Promise<Explanation> {
     if (create === null) return templateExplanation(verdict, 'NO_MODEL');
+    if (calls >= maxCalls) return templateExplanation(verdict, 'CALL_LIMIT');
+    calls += 1;
     const evidence = JSON.stringify(buildEvidence(verdict));
     let reply: ModelReply;
     try {

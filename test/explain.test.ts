@@ -58,7 +58,7 @@ function reachable(start: string): string[] {
 const src = (path: string) => join(fileURLToPath(new URL('../src/', import.meta.url)), path);
 
 test('the AI module cannot reach any code that moves money', () => {
-  for (const entry of ['ai/explain.ts', 'ai/bedrock.ts']) {
+  for (const entry of ['ai/explain.ts', 'ai/bedrock.ts', 'ai/recorded.ts']) {
     const files = reachable(src(entry));
     assert.deepEqual(files.filter((file) => /^(paypal|payments|server)\//.test(file)), [], entry);
     assert.ok(files.includes('proof/engine.ts'), 'the walk should reach the engine, or it proves nothing');

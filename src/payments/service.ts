@@ -38,6 +38,7 @@ export type TimelineEntry = {
   type: string;
   milestoneId: string | null;
   debugId: string | null;
+  detail?: string;
 };
 
 export type Contract = {
@@ -62,6 +63,8 @@ export type NewContract = {
   milestones: NewMilestone[];
   returnUrl: string;
   cancelUrl: string;
+  // Lets the return URL name the contract before PayPal has seen it.
+  contractId?: string;
 };
 
 export type Proof = (unitId: string, date: string) => Verdict;
@@ -88,6 +91,8 @@ export type VoidResult =
   | { outcome: 'TAP_REQUIRED' }
   | { outcome: 'VOIDED' }
   | { outcome: 'REJECTED' | 'UNKNOWN'; error: string };
+
+export type MoveDateResult = { outcome: 'MOVED' | 'NOT_FOUND' | 'NOT_HELD' | 'BUSY' | 'NOT_FORWARD' };
 
 export type WebhookResult = { applied: boolean; reason: 'APPLIED' | 'DUPLICATE' | 'IGNORED_TYPE' | 'UNMATCHED' | 'NO_CHANGE' };
 
@@ -232,7 +237,7 @@ export function createPayments(options: PaymentsOptions) {
       if (input.milestones.length === 0 || input.milestones.some((m) => !Number.isSafeInteger(m.amountCents) || m.amountCents <= 0)) {
         throw new RangeError('a contract needs milestones with positive whole-cent amounts');
       }
-      const id = randomUUID();
+      const id = input.contractId ?? randomUUID();
       const order = await paypal.createAuthorizeOrder({
         amount: { currency_code: input.currency, value: centsToValue(totalCents) },
         description: input.description,
@@ -293,6 +298,20 @@ export function createPayments(options: PaymentsOptions) {
       const verdict = proof(milestone.unitId, milestone.proofDate);
       if (verdict.status !== 'RELEASE_READY') return { outcome: 'LOCKED', verdict };
       return { outcome: 'READY', token: issueTap(contractId, milestoneId), verdict };
+    },
+
+    // Feeds the next recorded days to a milestone. It only moves forward and only before a capture,
+    // and the verdict is still computed here from the data, so no date can skip the check.
+    moveProofDate(contractId: string, milestoneId: string, date: string): MoveDateResult {
+      const contract = contracts.get(contractId);
+      const milestone = contract?.milestones.find((m) => m.id === milestoneId);
+      if (contract === undefined || milestone === undefined) return { outcome: 'NOT_FOUND' };
+      if (contract.status !== 'HELD') return { outcome: 'NOT_HELD' };
+      if (milestone.status !== 'WAITING' && milestone.status !== 'DECLINED') return { outcome: 'BUSY' };
+      if (!(date > milestone.proofDate)) return { outcome: 'NOT_FORWARD' };
+      milestone.proofDate = date;
+      contract.timeline.push({ at: new Date(now()).toISOString(), source: 'app', type: 'RECORDED_DAYS_ADDED', milestoneId, debugId: null, detail: date });
+      return { outcome: 'MOVED' };
     },
 
     prepareVoid(contractId: string): string | null {

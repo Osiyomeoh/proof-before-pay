@@ -5,6 +5,7 @@ import { createExplainer } from './explain.ts';
 import type { CreateMessage } from './explain.ts';
 
 const TIMEOUT_MS = 30_000;
+const DEFAULT_MAX_CALLS = 100;
 
 export function createBedrockExplainer(env: Record<string, string | undefined> = process.env) {
   const awsRegion = env['AWS_REGION'];
@@ -17,5 +18,6 @@ export function createBedrockExplainer(env: Record<string, string | undefined> =
     const reply = await client.messages.create(request);
     return { stop_reason: reply.stop_reason, model: reply.model, usage: reply.usage, content: reply.content };
   };
-  return createExplainer({ create, model });
+  const limit = Number(env['BEDROCK_MAX_CALLS']);
+  return createExplainer({ create, model, maxCalls: Number.isSafeInteger(limit) && limit >= 0 && env['BEDROCK_MAX_CALLS'] ? limit : DEFAULT_MAX_CALLS });
 }

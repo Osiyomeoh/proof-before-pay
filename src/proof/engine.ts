@@ -80,13 +80,13 @@ interface DayStat {
 
 const DATE_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
 
-function isValidDate(date: string): boolean {
+export function isValidDate(date: string): boolean {
   if (!DATE_FORMAT.test(date)) return false;
   const parsed = new Date(`${date}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === date;
 }
 
-function addDays(date: string, days: number): string {
+export function addDays(date: string, days: number): string {
   const parsed = new Date(`${date}T00:00:00Z`);
   parsed.setUTCDate(parsed.getUTCDate() + days);
   return parsed.toISOString().slice(0, 10);

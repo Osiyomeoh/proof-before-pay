@@ -1,4 +1,4 @@
-// HTTP routes for money and webhooks. The UI and hold-creation routes come later.
+// HTTP routes for money and webhooks. App pages and hold creation live in app.ts.
 // The webhook route reads raw bytes and verifies them before parsing anything.
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { Payments } from '../payments/service.ts';
@@ -9,6 +9,8 @@ const MAX_BODY_BYTES = 1024 * 1024;
 export type ServerDeps = {
   payments: Payments;
   verifyWebhook: (headers: WebhookHeaders, rawBody: Buffer) => Promise<WebhookCheck>;
+  // Returns true when it handled the request.
+  app?: (req: IncomingMessage, res: ServerResponse, path: string) => Promise<boolean>;
 };
 
 class BodyTooLarge extends Error {}
@@ -25,13 +27,13 @@ async function readBody(req: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function send(res: ServerResponse, status: number, body: unknown) {
+export function send(res: ServerResponse, status: number, body: unknown) {
   res.writeHead(status, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify(body));
 }
 
 // Requiring JSON blocks a plain cross-site form post from reaching a money route.
-async function readJson(req: IncomingMessage): Promise<Record<string, unknown> | null> {
+export async function readJson(req: IncomingMessage): Promise<Record<string, unknown> | null> {
   if (!(req.headers['content-type'] ?? '').startsWith('application/json')) return null;
   try {
     const parsed: unknown = JSON.parse((await readBody(req)).toString('utf8'));
@@ -108,6 +110,7 @@ export function createHandler(deps: ServerDeps): RequestListener {
       return send(res, VOID_STATUS[result.outcome] ?? 500, result);
     }
 
+    if (deps.app !== undefined && (await deps.app(req, res, path))) return;
     return send(res, 404, { error: 'NOT_FOUND' });
   }
 
