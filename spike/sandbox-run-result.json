@@ -1,0 +1,27 @@
+{
+  "ranAt": "2026-11-04T22:09:21.198Z",
+  "hold": {
+    "status": "CREATED",
+    "expiresAt": "2026-12-03T22:09:23Z"
+  },
+  "repeatRequest": {
+    "sameCaptureId": true,
+    "firstStatus": "COMPLETED",
+    "repeatStatus": "COMPLETED",
+    "authorizationStatus": "PARTIALLY_CAPTURED"
+  },
+  "overCapture": {
+    "accepted": false,
+    "status": 422,
+    "message": "PayPal 422: UNPROCESSABLE_ENTITY / MAX_CAPTURE_AMOUNT_EXCEEDED / The requested action could not be performed, semantically incorrect, or failed business validation."
+  },
+  "repeatInvoice": {
+    "accepted": false,
+    "status": 422,
+    "message": "PayPal 422: UNPROCESSABLE_ENTITY / DUPLICATE_TRANSACTION / The requested action could not be performed, semantically incorrect, or failed business validation."
+  },
+  "voidAfterPartial": {
+    "voidStatus": "VOIDED",
+    "authorizationStatus": "VOIDED"
+  }
+}

@@ -10,7 +10,8 @@
   "scripts": {
     "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
-    "eval": "node --disable-warning=ExperimentalWarning scripts/eval-verdict.ts"
+    "eval": "node --disable-warning=ExperimentalWarning scripts/eval-verdict.ts",
+    "sandbox": "node --disable-warning=ExperimentalWarning scripts/sandbox-run.ts"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
