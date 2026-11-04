@@ -28,7 +28,9 @@ def evaluate(i, floor):
         base = st.median(history)
         ratios = [shares[x] / base for x in window]
         mean = sum(ratios) / WINDOW
-        out.append((d, mean, mean >= MIN_MEAN and min(ratios) >= floor))
+        # A zero peer median makes the share meaningless, so that window can't pass.
+        peers_up = all(st.median(D[j][x][0] for j in IDS if j != i) > 0 for x in window)
+        out.append((d, mean, peers_up and mean >= MIN_MEAN and min(ratios) >= floor))
     return out
 
 
