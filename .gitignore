@@ -1,0 +1,6 @@
+.env
+node_modules/
+spike/data/
+spike/paypal-state.json
+spike/paypal-spike-log.jsonl
+WIN-DECISION.md
