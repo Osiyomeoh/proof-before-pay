@@ -3,7 +3,7 @@
 // Usage: npm run sample, then in another terminal: node scripts/check-ui.mjs [baseUrl]
 // Set CHROME_PATH if Chrome isn't in the default macOS location. Screenshots go to .shots/ (gitignored).
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -12,13 +12,23 @@ mkdirSync(SHOTS, { recursive: true });
 const BASE = process.argv[2] ?? 'http://localhost:3000';
 const CHROME = process.env.CHROME_PATH ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const profile = mkdtempSync(join(tmpdir(), 'pbp-chrome-'));
-const chrome = spawn(CHROME, ['--headless=new', '--disable-gpu', '--no-first-run', '--remote-debugging-port=9333', `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' });
+// Port 0 means Chrome picks a free port, so this run can't attach to a Chrome left over from another one.
+const chrome = spawn(CHROME, ['--headless=new', '--disable-gpu', '--no-first-run', '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { stdio: 'ignore' });
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+function cleanUp() { chrome.kill(); }
+process.on('exit', cleanUp);
+process.on('SIGINT', () => process.exit(130));
+process.on('SIGTERM', () => process.exit(143));
+process.on('uncaughtException', (error) => { console.error(error); process.exit(1); });
+process.on('unhandledRejection', (error) => { console.error(error); process.exit(1); });
 
 async function target() {
   for (let i = 0; i < 40; i += 1) {
     try {
-      const list = await (await fetch('http://127.0.0.1:9333/json')).json();
+      const portFile = join(profile, 'DevToolsActivePort');
+      if (!existsSync(portFile)) throw new Error('not ready');
+      const port = readFileSync(portFile, 'utf8').split('\n')[0];
+      const list = await (await fetch(`http://127.0.0.1:${port}/json`)).json();
       const page = list.find((t) => t.type === 'page');
       if (page) return page.webSocketDebuggerUrl;
     } catch { /* still starting */ }
@@ -35,15 +45,18 @@ const problems = [];
 let step = '';
 const inFlight = new Set();
 let lastActivity = Date.now();
+let expected404 = false;
+let viewRequests = 0;
 ws.addEventListener('message', ({ data }) => {
   const m = JSON.parse(data);
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); return; }
-  if (m.method === 'Network.requestWillBeSent') { inFlight.add(m.params.requestId); lastActivity = Date.now(); }
+  if (m.method === 'Network.requestWillBeSent') { inFlight.add(m.params.requestId); lastActivity = Date.now(); if (m.params.request.url.endsWith('/view')) viewRequests += 1; }
+  if (m.method === 'Fetch.requestPaused') send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 404, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from('{"error":"NOT_FOUND"}').toString('base64') });
   if (m.method === 'Network.loadingFinished' || m.method === 'Network.loadingFailed') { inFlight.delete(m.params.requestId); lastActivity = Date.now(); }
   if (m.method === 'Runtime.exceptionThrown') problems.push(`[${step}] exception: ${m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text}`);
   if (m.method === 'Runtime.consoleAPICalled' && ['error', 'warning'].includes(m.params.type)) problems.push(`[${step}] console.${m.params.type}: ${m.params.args.map((a) => a.value ?? a.description).join(' ')}`);
   // The missing-hold step requests a hold that doesn't exist on purpose, and the browser logs that 404.
-  if (m.method === 'Log.entryAdded' && !m.params.entry.url?.endsWith('/api/contracts/no-such-hold/view') && ['error', 'warning'].includes(m.params.entry.level)) problems.push(`[${step}] log: ${m.params.entry.text} ${m.params.entry.url ?? ''}`);
+  if (m.method === 'Log.entryAdded' && !m.params.entry.url?.endsWith('/api/contracts/no-such-hold/view') && !(expected404 && m.params.entry.url?.endsWith('/view')) && ['error', 'warning'].includes(m.params.entry.level)) problems.push(`[${step}] log: ${m.params.entry.text} ${m.params.entry.url ?? ''}`);
 });
 const send = (method, params = {}) => new Promise((resolve) => { const id = ++seq; pending.set(id, resolve); ws.send(JSON.stringify({ id, method, params })); });
 const run = async (expression) => {
@@ -80,6 +93,30 @@ async function shot(name, full = true) {
 const clickStop = (text) => run(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.startsWith(${JSON.stringify(text)})); if (!b) throw new Error('no button ' + ${JSON.stringify(text)}); b.click(); })()`);
 const clickSel = (sel) => run(`document.querySelector(${JSON.stringify(sel)}).click()`);
 
+// Reads the ledger's displayed rows and summary, and fails the run on anything impossible.
+const readLedger = `(() => {
+  const dateCells = [...document.querySelectorAll('.ledger-grid .ag-row .ag-cell[col-id="date"]')];
+  const rowIndex = (cell) => Number(cell.closest('.ag-row').getAttribute('row-index'));
+  const dates = dateCells.sort((a, b) => rowIndex(a) - rowIndex(b)).map((c) => c.textContent);
+  const facts = Object.fromEntries([...document.querySelectorAll('.ledger-sum div')].map((d) => [d.querySelector('dt').textContent, d.querySelector('dd').textContent]));
+  const box = document.querySelector('.ledger-grid').getBoundingClientRect();
+  const empties = [...document.querySelectorAll('.ledger-grid .ag-cell')].filter((c) => c.textContent === '').length;
+  return { dates, facts, heading: document.querySelector('.ledger h2').textContent, chips: [...document.querySelectorAll('.ledger .chip')].map((b) => b.textContent), right: box.right, inner: innerWidth, nonced: document.querySelectorAll('style[nonce]').length, empties, judged: dateCells.filter((c) => c.closest('.ag-row').classList.contains('g-judged')).length };
+})()`;
+const ledgerFacts = [];
+async function checkLedger(label, expectTop) {
+  const l = await run(readLedger);
+  ledgerFacts.push({ step: `${step} ${label}`, ...l });
+  if (l.dates.length === 0) problems.push(`[${step}] ledger has no rows`);
+  if (l.dates[0] !== expectTop) problems.push(`[${step}] ledger top row is ${l.dates[0]}, expected ${expectTop}`);
+  if (Number(l.facts['Days shown']) <= 0) problems.push(`[${step}] ledger summary is empty`);
+  if (l.right > l.inner + 0.5) problems.push(`[${step}] ledger wider than the page`);
+  if (l.nonced === 0) problems.push(`[${step}] grid styles carry no nonce`);
+  if (l.empties > 0) problems.push(`[${step}] ${l.empties} blank grid cells`);
+  if (l.judged !== 7) problems.push(`[${step}] ${l.judged} judged rows, expected 7`);
+  return l;
+}
+
 const results = [];
 for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], [1280, 800, 'light'], [1280, 800, 'dark']]) {
   const tag = `${width}-${scheme}`;
@@ -89,9 +126,28 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
 
   await open(`${BASE}/`); await record('landing');
   await clickSel('.release.ready'); await settle(1500); await record('hold-oct12');
+  await checkLedger('oct12', 'Oct 12, 2020');
   await clickStop('Oct 22'); await settle(1200); await record('oct22');
   await clickStop('Oct 26'); await settle(1200); await record('oct26');
   await clickStop('Nov 19'); await settle(1200); await record('nov19-ready');
+  const all = await checkLedger('nov19', 'Nov 19, 2020');
+
+  // Narrow to the days the rules disagree, and check the summary follows the filter.
+  await clickStop('Rules disagree'); await settle(400); await record('ledger-disagree');
+  const narrowed = await run(readLedger);
+  if (Number(narrowed.facts['Days shown']) !== Number(all.facts['Rules disagree'])) problems.push(`[${step}] disagree filter shows ${narrowed.facts['Days shown']}, expected ${all.facts['Rules disagree']}`);
+  if (Number(narrowed.facts['Ours ready']) !== 0) problems.push(`[${step}] a disagree row has our rule ready`);
+  if (width === 1280 && scheme === 'light') {
+    const downloads = mkdtempSync(join(tmpdir(), 'pbp-csv-'));
+    await send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
+    await clickStop('Download CSV'); await wait(800);
+    const files = readdirSync(downloads);
+    const lines = files[0] === undefined ? [] : readFileSync(join(downloads, files[0]), 'utf8').trim().split('\n');
+    console.log(`csv: ${files[0]}, ${lines.length - 1} rows`);
+    if (lines.length - 1 !== Number(narrowed.facts['Days shown'])) problems.push(`[${step}] CSV has ${lines.length - 1} lines after the header, showing ${narrowed.facts['Days shown']}`);
+    rmSync(downloads, { recursive: true, force: true });
+  }
+  await clickStop('All days'); await settle(400);
   await clickSel('.release.ready'); await settle(900); await record('released-m1');
   await clickStop('Dec 19'); await settle(1200); await record('dec19-ready');
   await clickSel('.release.ready'); await settle(900); await record('closed');
@@ -100,6 +156,23 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   await clickStop('Give the rest back'); await settle(200); await record('void-confirm');
   await clickStop('Return it'); await settle(900); await record('voided');
   await open(`${BASE}/c/no-such-hold`); await record('gone');
+
+  // A restart clears holds. The page must say so once, then stop asking.
+  if (width === 390 && scheme === 'light') {
+    await open(`${BASE}/`); await clickSel('.release.ready'); await settle(1200);
+    expected404 = true;
+    await send('Fetch.enable', { patterns: [{ urlPattern: '*/view' }] });
+    await wait(5600);
+    step = `${tag} restart`;
+    const shown = await run(`document.querySelector('h1')?.textContent`);
+    if (shown !== 'This hold is no longer here.') problems.push(`[${step}] page shows: ${shown}`);
+    const before = viewRequests;
+    await wait(6000);
+    if (viewRequests !== before) problems.push(`[${step}] kept polling: ${viewRequests - before} more requests`);
+    await send('Fetch.disable');
+    expected404 = false;
+    results.push({ step, polling: viewRequests - before });
+  }
 
   // Hover the chart on the wide layout, to check the tooltip stays in bounds.
   await open(`${BASE}/`); await clickSel('.release.ready'); await settle(1200);
@@ -118,9 +191,11 @@ for (const r of results) {
 timings.sort((a, b) => a - b);
 console.log(`${results.length} steps, ${problems.length} problems`);
 console.log(`page load to network quiet: ${timings.length} loads, median ${timings[timings.length >> 1]} ms, slowest ${timings.at(-1)} ms`);
+const sample = ledgerFacts.find((f) => f.step.endsWith('nov19'));
+if (sample) console.log(`ledger at Nov 19: ${JSON.stringify(sample.facts)} ${JSON.stringify(sample.chips)}`);
 for (const problem of problems) console.log(problem);
 ws.close();
-chrome.kill();
+cleanUp();
 await wait(300);
 rmSync(profile, { recursive: true, force: true });
 process.exit(problems.length === 0 ? 0 : 1);

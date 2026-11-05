@@ -1,11 +1,13 @@
 // App routes: pages, hold creation, the PayPal return, the read-only view and the recorded-day clock.
 // Nothing here captures. The money routes in http.ts remain the only way to release or void.
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { isValidDate } from '../proof/engine.ts';
+import { addDays, isValidDate } from '../proof/engine.ts';
 import type { Fleet, Verdict } from '../proof/engine.ts';
+import type { LedgerRow } from '../proof/ledger.ts';
 import type { Payments, Proof } from '../payments/service.ts';
-import { DEMO_DESCRIPTION, DEMO_MILESTONES, buildView, currentIndex, opensOn } from './demo.ts';
+import { DEMO_DESCRIPTION, DEMO_MILESTONES, DEMO_UNIT, buildView, currentIndex, opensOn, seenDate } from './demo.ts';
 import { readJson, send } from './http.ts';
 
 export type AppExplanation = {
@@ -24,17 +26,24 @@ export type AppDeps = {
   mode: 'sample' | 'sandbox';
   publicUrl: string;
   explain: (verdict: Verdict) => Promise<AppExplanation>;
+  ledger: (through: string) => Promise<readonly LedgerRow[]>;
   now?: () => number;
   maxHoldsPerMinute?: number;
 };
 
 const PUBLIC_DIR = new URL('../../public/', import.meta.url);
-const FONTS = new URL('../../node_modules/@fontsource/', import.meta.url);
+const NODE_MODULES = new URL('../../node_modules/', import.meta.url);
+const FONTS = new URL('@fontsource/', NODE_MODULES);
 
 // A fixed list, so a request path never reaches the file system.
 const STATIC_FILES: ReadonlyArray<[string, URL, string]> = [
   ['/app.js', new URL('app.js', PUBLIC_DIR), 'text/javascript; charset=utf-8'],
   ['/chart.js', new URL('chart.js', PUBLIC_DIR), 'text/javascript; charset=utf-8'],
+  ['/dom.js', new URL('dom.js', PUBLIC_DIR), 'text/javascript; charset=utf-8'],
+  ['/ledger.js', new URL('ledger.js', PUBLIC_DIR), 'text/javascript; charset=utf-8'],
+  // The self-contained browser build. The ESM build imports "ag-stack" by bare name, which a browser can't resolve.
+  // The noStyle build, because the full one adds legacy-theme <style> tags on load, before a nonce can be set.
+  ['/vendor/ag-grid.min.js', new URL('ag-grid-community/dist/ag-grid-community.min.noStyle.js', NODE_MODULES), 'text/javascript; charset=utf-8'],
   ['/styles.css', new URL('styles.css', PUBLIC_DIR), 'text/css; charset=utf-8'],
   ['/icon.svg', new URL('icon.svg', PUBLIC_DIR), 'image/svg+xml'],
   ['/fonts/sans-400.woff2', new URL('ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2', FONTS), 'font/woff2'],
@@ -43,7 +52,9 @@ const STATIC_FILES: ReadonlyArray<[string, URL, string]> = [
   ['/fonts/mono-500.woff2', new URL('ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2', FONTS), 'font/woff2'],
 ];
 
-const CSP = "default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+// AG Grid adds its styles at runtime and draws icons from data: URLs: https://www.ag-grid.com/javascript-data-grid/security/
+const contentPolicy = (nonce: string) =>
+  `default-src 'none'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 
 const REPLAY_STATUS: Record<string, number> = { MOVED: 200, NOT_FOUND: 404, NOT_HELD: 409, BUSY: 409, NOT_FORWARD: 409 };
 
@@ -52,12 +63,13 @@ export function createApp(deps: AppDeps) {
   const now = deps.now ?? Date.now;
   const maxHolds = deps.maxHoldsPerMinute ?? 20;
   const files = new Map(STATIC_FILES.map(([path, file, type]) => [path, { body: readFileSync(file), type }]));
-  const page = readFileSync(new URL('index.html', PUBLIC_DIR));
+  const page = readFileSync(new URL('index.html', PUBLIC_DIR), 'utf8');
   let holdsInMinute: { minute: number; count: number } = { minute: 0, count: 0 };
 
   function servePage(res: ServerResponse) {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': CSP, 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
-    res.end(page);
+    const nonce = randomBytes(16).toString('base64url');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': contentPolicy(nonce), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
+    res.end(page.replace('__STYLE_NONCE__', nonce));
   }
 
   function redirect(res: ServerResponse, location: string) {
@@ -74,7 +86,8 @@ export function createApp(deps: AppDeps) {
   }
 
   return async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
-    if (req.method === 'GET') {
+    // Node leaves the body out of a HEAD response. The PayPal return below stays GET only, because it places a hold.
+    if (req.method === 'GET' || req.method === 'HEAD') {
       if (path === '/' || /^\/c\/[^/]+$/.test(path)) {
         servePage(res);
         return true;
@@ -85,10 +98,14 @@ export function createApp(deps: AppDeps) {
       }
       const file = files.get(path);
       if (file !== undefined) {
-        res.writeHead(200, { 'Content-Type': file.type, 'X-Content-Type-Options': 'nosniff' });
+        const cache = path.startsWith('/vendor/') ? { 'Cache-Control': 'public, max-age=86400' } : {};
+        res.writeHead(200, { 'Content-Type': file.type, 'X-Content-Type-Options': 'nosniff', ...cache });
         res.end(file.body);
         return true;
       }
+    }
+
+    if (req.method === 'GET') {
       if (path === '/paypal/return' || path === '/paypal/cancel') {
         const id = new URL(req.url ?? '/', 'http://localhost').searchParams.get('contract') ?? '';
         if (payments.get(id) === null) {
@@ -150,6 +167,18 @@ export function createApp(deps: AppDeps) {
       }
       const verdict = view.milestones.find((m) => m.isCurrent)?.verdict ?? null;
       send(res, 200, verdict === null ? { explanation: null } : await explain(verdict));
+      return true;
+    }
+
+    const ledgerMatch = path.match(/^\/api\/contracts\/([^/]+)\/ledger$/);
+    if (req.method === 'GET' && ledgerMatch?.[1] !== undefined) {
+      const contract = payments.get(ledgerMatch[1]);
+      if (contract === null) {
+        send(res, 404, { error: 'NOT_FOUND' });
+        return true;
+      }
+      const through = seenDate(contract);
+      send(res, 200, { unit: DEMO_UNIT, through, judgedFrom: addDays(through, -6), rows: await deps.ledger(through) });
       return true;
     }
 

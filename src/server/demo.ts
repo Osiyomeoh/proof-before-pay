@@ -37,6 +37,11 @@ export function opensOn(contract: Contract, index: number): string | null {
   return previous === undefined ? null : addDays(previous.proofDate, DAYS_BETWEEN_MILESTONES);
 }
 
+// The newest day the buyer has seen so far. Nothing newer may reach the browser.
+export function seenDate(contract: Contract): string {
+  return contract.milestones.map((m) => m.proofDate).sort().at(-1) ?? DEMO_START;
+}
+
 export type HistoryDay = { date: string; kwh: number | null; peerMedianKwh: number | null; sun: number | null };
 
 export function recordedHistory(fleet: Fleet, unitId: string, until: string, days = HISTORY_DAYS): HistoryDay[] {
@@ -112,8 +117,7 @@ export function buildView(contract: Contract, proof: Proof, fleet: Fleet, mode: 
   const milestones = contract.milestones.map((m, index) => milestoneView(contract, m, index, current, proof));
   const live = milestones[current];
 
-  // The newest day the buyer has seen so far.
-  const seen = contract.milestones.map((m) => m.proofDate).sort().at(-1) ?? DEMO_START;
+  const seen = seenDate(contract);
   const waitingUntil = live !== undefined && live.opensOn !== null && live.proofDate < live.opensOn ? live.opensOn : null;
   const stops = waitingUntil !== null
     ? [{ date: waitingUntil, label: `Next check, ${DAYS_BETWEEN_MILESTONES} days on` }]

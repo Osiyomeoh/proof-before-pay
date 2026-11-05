@@ -12,6 +12,8 @@ import { PayPalError } from '../src/paypal/client.ts';
 import type { CaptureInput, PayPalClient } from '../src/paypal/client.ts';
 import { createRecordedPayPal } from '../src/paypal/recorded.ts';
 import { judge } from '../src/proof/engine.ts';
+import { createLedger } from '../src/proof/ledger.ts';
+import type { LedgerRow } from '../src/proof/ledger.ts';
 import { commonDates, loadMauiFleet } from '../src/proof/maui.ts';
 import { createApp } from '../src/server/app.ts';
 import type { AppDeps } from '../src/server/app.ts';
@@ -22,11 +24,12 @@ const fleet = loadMauiFleet();
 const lastDate = commonDates(fleet).at(-1) as string;
 const proof = (unitId: string, date: string) => judge(fleet, unitId, date);
 const captures: CaptureInput[] = [];
+const ledger = createLedger(fleet, '01', lastDate);
 
 function startServer(paypal: PayPalClient, options: Partial<AppDeps> = {}) {
   const payments = createPayments({ paypal, proof });
   const explainer = createRecordedExplainer();
-  const app = createApp({ payments, proof, fleet, lastDate, mode: 'sample', publicUrl: 'http://localhost', explain: (v) => explainer.explain(v), ...options });
+  const app = createApp({ payments, proof, fleet, lastDate, mode: 'sample', publicUrl: 'http://localhost', explain: (v) => explainer.explain(v), ledger: ledger.through, ...options });
   const server = createServer(createHandler({ payments, verifyWebhook: async () => ({ ok: false, reason: 'NOT_CONFIGURED' }), app }));
   return server;
 }
@@ -219,11 +222,54 @@ test('a day with no saved answer gets the labelled template, never an empty pane
   assert.ok(answer.explanation.length > 0);
 });
 
+test('the ledger holds no day after the one being judged, and follows the clock', async () => {
+  const id = await newHold();
+  type Ledger = { through: string; judgedFrom: string; rows: LedgerRow[] };
+  const read = async () => (await (await fetch(`${base}/api/contracts/${id}/ledger`)).json()) as Ledger;
+
+  const first = await read();
+  assert.equal(first.through, '2020-10-12');
+  assert.equal(first.judgedFrom, '2020-10-06');
+  assert.equal(first.rows.at(-1)?.date, '2020-10-12');
+  assert.ok(first.rows.every((row) => row.date <= '2020-10-12'));
+
+  await replay(id, '2020-10-23');
+  const later = await read();
+  assert.equal(later.rows.at(-1)?.date, '2020-10-23');
+  assert.deepEqual(later.rows.at(-1)?.status, judge(fleet, '01', '2020-10-23').status);
+  assert.equal((await fetch(`${base}/api/contracts/no-such-hold/ledger`)).status, 404);
+});
+
+test('each page gets its own style nonce, in the policy and in the page', async () => {
+  const nonces = await Promise.all([1, 2].map(async () => {
+    const page = await fetch(`${base}/`);
+    const policy = page.headers.get('content-security-policy') ?? '';
+    const inPolicy = policy.match(/style-src 'self' 'nonce-([A-Za-z0-9_-]+)'/)?.[1];
+    const inPage = (await page.text()).match(/name="style-nonce" content="([^"]+)"/)?.[1];
+    assert.ok(inPolicy);
+    assert.equal(inPage, inPolicy);
+    assert.equal(page.headers.get('cache-control'), 'no-store');
+    return inPolicy;
+  }));
+  assert.notEqual(nonces[0], nonces[1]);
+});
+
+test('HEAD works on pages and static files, and never reaches the PayPal return', async () => {
+  for (const path of ['/', '/healthz', '/app.js', '/vendor/ag-grid.min.js']) {
+    const res = await fetch(`${base}${path}`, { method: 'HEAD' });
+    assert.equal(res.status, 200, path);
+    assert.equal((await res.arrayBuffer()).byteLength, 0, path);
+  }
+  const id = await newHold();
+  assert.equal((await fetch(`${base}/paypal/return?contract=${id}`, { method: 'HEAD', redirect: 'manual' })).status, 404);
+});
+
 test('pages carry a strict content policy, and paths outside the fixed list are not served', async () => {
   const page = await fetch(`${base}/`);
   assert.equal(page.status, 200);
   assert.match(page.headers.get('content-security-policy') ?? '', /script-src 'self'/);
-  for (const path of ['/app.js', '/chart.js', '/styles.css', '/icon.svg', '/fonts/sans-400.woff2', '/fonts/mono-500.woff2']) {
+  assert.match(await page.text(), /doi\.org\/10\.25984\/1846021/);
+  for (const path of ['/app.js', '/chart.js', '/dom.js', '/ledger.js', '/vendor/ag-grid.min.js', '/styles.css', '/icon.svg', '/fonts/sans-400.woff2', '/fonts/mono-500.woff2']) {
     assert.equal((await fetch(`${base}${path}`)).status, 200, path);
   }
   for (const path of ['/.env', '/public/app.js', '/..%2f.env', '/fonts/../../.env', '/WIN-DECISION.md']) {

@@ -1,21 +1,12 @@
 // The whole UI. Everything from the server is written with textContent, never as HTML.
 // This page shows verdicts and sends taps. All decisions about money are made on the server.
 import { drawChart, shortDate } from './chart.js';
+import { el } from './dom.js';
+import { createLedger } from './ledger.js';
 
 const app = document.getElementById('app');
 const modeTag = document.getElementById('mode');
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-function el(tag, props = {}, ...children) {
-  const node = document.createElement(tag);
-  for (const [key, value] of Object.entries(props)) {
-    if (key === 'class') node.className = value;
-    else if (key === 'on') for (const [name, fn] of Object.entries(value)) node.addEventListener(name, fn);
-    else if (value !== null && value !== undefined && value !== false) node[key] = value;
-  }
-  node.append(...children.filter((c) => c !== null && c !== undefined && c !== false));
-  return node;
-}
 
 function icon(kind, size = 16) {
   const paths = {
@@ -129,6 +120,8 @@ async function refresh() {
 }
 
 function renderGone() {
+  // Clearing the view also stops the polling, so the page doesn't keep asking for a hold that's gone.
+  state.view = null;
   app.replaceChildren(el('section', { class: 'landing' }, el('div', {},
     el('h1', {}, 'This hold is no longer here.'),
     el('p', { class: 'lede' }, 'The demo keeps holds in memory, so a server restart clears them. Any sandbox authorization expires by itself. No money has moved.'),
@@ -323,15 +316,6 @@ function renderClock(view) {
 }
 
 function renderEvidence(view) {
-  const verdict = currentMilestone(view)?.verdict ?? null;
-  const days = verdict?.window ?? [];
-  const rows = [...days].reverse().map((day) => el('tr', {},
-    el('td', {}, shortDate(day.date)),
-    el('td', { class: day.kwh === 0 ? 'low' : '' }, day.kwh === null ? '–' : day.kwh.toFixed(1)),
-    el('td', {}, day.peerMedianKwh === null ? '–' : day.peerMedianKwh.toFixed(1)),
-    el('td', {}, day.sun === null ? '–' : day.sun.toFixed(2)),
-    el('td', { class: day.ratio !== null && day.ratio < 0.3 ? 'low' : '' }, day.ratio === null ? '–' : `${Math.round(day.ratio * 100)}%`),
-  ));
   chartHost = el('div', { class: 'chart' });
   chartDays = view.history;
   return el('section', { class: 'card' },
@@ -343,11 +327,6 @@ function renderEvidence(view) {
       el('span', {}, el('i', { class: 'k-window' }), '7 days judged'),
     ),
     chartHost,
-    rows.length === 0 ? null : el('div', { class: 'scroll' }, el('table', {},
-      el('caption', {}, 'The 7 days behind this verdict'),
-      el('thead', {}, el('tr', {}, ...['Day', 'kWh', 'Others', 'Sun', 'Share of usual'].map((h) => el('th', { scope: 'col' }, h)))),
-      el('tbody', {}, ...rows),
-    )),
   );
 }
 
@@ -442,10 +421,19 @@ function renderTimeline(view) {
   );
 }
 
+// The ledger sits outside the part that gets rebuilt, so its sort, filters and scroll position survive a new view.
+let boardHost = null;
+let ledger = null;
+
 function render() {
   const view = state.view;
+  if (boardHost === null || !boardHost.isConnected) {
+    boardHost = el('div');
+    ledger = createLedger();
+    app.replaceChildren(boardHost, ledger.section);
+  }
   aiHost = el('div', { class: 'ai' });
-  app.replaceChildren(el('div', { class: 'board' },
+  boardHost.replaceChildren(el('div', { class: 'board' },
     el('section', { class: 'card hero' }, renderVerdict(view), aiHost),
     el('div', { class: 'lower' },
       el('div', { class: 'col' }, renderEvidence(view)),
@@ -454,6 +442,7 @@ function render() {
   ));
   renderAi();
   drawChart(chartHost, chartDays, 7);
+  ledger.show(view.id, view.clock.date, view.source.unit);
 }
 
 let lastWidth = 0;

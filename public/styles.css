@@ -160,14 +160,24 @@ button { font: inherit; }
 .tip { position: absolute; top: 0; pointer-events: none; background: var(--ink); color: var(--card); padding: 6px 8px; border-radius: 6px; font: 400 12px/1.5 "Plex Mono", monospace; white-space: nowrap; z-index: 2; }
 .tip b { font-weight: 500; display: block; }
 
-/* Evidence table */
-.scroll { overflow-x: auto; margin-top: 16px; }
-table { border-collapse: collapse; width: 100%; font-size: 13px; }
-caption { text-align: left; font-size: 13px; font-weight: 600; color: var(--ink-2); padding-bottom: 8px; }
-th { text-align: right; font-weight: 400; color: var(--ink-3); padding: 4px 6px; border-bottom: 1px solid var(--line); }
-td { text-align: right; padding: 6px; border-bottom: 1px solid var(--grid); font-family: "Plex Mono", monospace; font-variant-numeric: tabular-nums; }
-th:first-child, td:first-child { text-align: left; padding-left: 0; white-space: nowrap; }
-td.low { color: var(--hold); font-weight: 500; }
+/* Production ledger */
+.ledger { margin-bottom: 16px; }
+.ledger-note { color: var(--ink-2); font-size: 14px; max-width: 76ch; }
+.ledger-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
+.ledger-tools .chip { font-size: 14px; }
+.ledger-tools .chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--card); }
+.ledger-tools .csv { margin-left: auto; font-size: 14px; }
+.ledger-sum { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px 16px; margin-top: 12px; }
+.ledger-sum dt { font-size: 13px; color: var(--ink-3); }
+.ledger-sum dd { margin: 0; font: 500 16px/1.3 "Plex Mono", monospace; }
+.scroll { overflow-x: auto; margin-top: 12px; }
+.ledger-grid { height: 440px; }
+.ledger-grid .g-num { font-family: "Plex Mono", monospace; font-variant-numeric: tabular-nums; }
+.ledger-grid .g-low { color: var(--hold); font-weight: 500; }
+.ledger-grid .g-hold { color: var(--hold); font-weight: 500; }
+.ledger-grid .g-ready { color: var(--ready); font-weight: 500; }
+.ledger-grid .g-judged { background: var(--band); }
+.ledger-status { color: var(--ink-2); font-size: 14px; margin-top: 12px; }
 
 /* Money, milestones, timeline */
 .money { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }

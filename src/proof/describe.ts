@@ -45,3 +45,31 @@ export function reasonSentence(reason: HoldReason): string {
       return `The whole roof made ${percent(reason.ratio)}% of its usual output for the measured sun, below the ${percent(reason.min)}% limit.`;
   }
 }
+
+// A few words for a table cell. reasonSentence gives the full wording.
+export function reasonLabel(reason: HoldReason): string {
+  switch (reason.code) {
+    case 'INVALID_DATE':
+      return 'Invalid date';
+    case 'UNKNOWN_UNIT':
+      return 'Unknown inverter';
+    case 'TOO_FEW_PEERS':
+      return 'Too few other inverters';
+    case 'MISSING_DATA':
+      return 'Missing readings';
+    case 'PEERS_DOWN':
+      return 'Other inverters down';
+    case 'NOT_ENOUGH_HISTORY':
+      return 'Not enough history';
+    case 'NO_BASELINE':
+      return 'No usual share yet';
+    case 'BASELINE_DEGRADED':
+      return 'Usual share has fallen';
+    case 'MEAN_TOO_LOW':
+      return '7-day average too low';
+    case 'DAY_BELOW_FLOOR':
+      return 'A day under the floor';
+    case 'FLEET_LOW_FOR_SUN':
+      return 'Whole roof low for the sun';
+  }
+}
