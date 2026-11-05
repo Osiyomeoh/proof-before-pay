@@ -33,9 +33,13 @@ let seq = 0;
 const pending = new Map();
 const problems = [];
 let step = '';
+const inFlight = new Set();
+let lastActivity = Date.now();
 ws.addEventListener('message', ({ data }) => {
   const m = JSON.parse(data);
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); return; }
+  if (m.method === 'Network.requestWillBeSent') { inFlight.add(m.params.requestId); lastActivity = Date.now(); }
+  if (m.method === 'Network.loadingFinished' || m.method === 'Network.loadingFailed') { inFlight.delete(m.params.requestId); lastActivity = Date.now(); }
   if (m.method === 'Runtime.exceptionThrown') problems.push(`[${step}] exception: ${m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text}`);
   if (m.method === 'Runtime.consoleAPICalled' && ['error', 'warning'].includes(m.params.type)) problems.push(`[${step}] console.${m.params.type}: ${m.params.args.map((a) => a.value ?? a.description).join(' ')}`);
   // The missing-hold step requests a hold that doesn't exist on purpose, and the browser logs that 404.
@@ -47,9 +51,25 @@ const run = async (expression) => {
   if (r.result?.exceptionDetails) throw new Error(`${step}: ${r.result.exceptionDetails.exception?.description ?? r.result.exceptionDetails.text}`);
   return r.result?.result?.value;
 };
-await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable');
+await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable'); await send('Network.enable');
 
-async function open(url) { await send('Page.navigate', { url }); await wait(900); }
+// Waits at least `ms` for animation, then until the network has been quiet for 300 ms, so a slow host can't fail a step.
+const timings = [];
+async function settle(ms) {
+  const started = Date.now();
+  await wait(ms);
+  while (inFlight.size > 0 || Date.now() - lastActivity < 300) {
+    if (Date.now() - started > 90_000) throw new Error(`${step}: network still busy after 90 s`);
+    await wait(50);
+  }
+  return Date.now() - started;
+}
+async function open(url) {
+  const started = Date.now();
+  await send('Page.navigate', { url });
+  await settle(900);
+  timings.push(Date.now() - started - 300);
+}
 const measure = `(() => { const w = document.documentElement; const wide = [...document.querySelectorAll('body *')].filter((e) => { if (e.closest('.scroll') || e.closest('svg')) return false; const r = e.getBoundingClientRect(); return r.width > 0 && r.right > innerWidth + 0.5; }).slice(0, 4).map((e) => e.tagName + '.' + e.className); return { overflow: w.scrollWidth - innerWidth, wide, h1: document.querySelector('h1')?.textContent, labels: [...document.querySelectorAll('.chart text.end')].map((t) => { const b = t.getBBox(); return t.textContent + '@' + Math.round(b.x) + ',' + Math.round(b.y); }) }; })()`;
 async function shot(name, full = true) {
   const metrics = full ? await send('Page.getLayoutMetrics') : null;
@@ -68,21 +88,21 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   const record = async (name) => { step = `${tag} ${name}`; const m = await run(measure); results.push({ step, ...m }); await shot(`${tag}-${name}`); };
 
   await open(`${BASE}/`); await record('landing');
-  await clickSel('.release.ready'); await wait(1500); await record('hold-oct12');
-  await clickStop('Oct 22'); await wait(1200); await record('oct22');
-  await clickStop('Oct 26'); await wait(1200); await record('oct26');
-  await clickStop('Nov 19'); await wait(1200); await record('nov19-ready');
-  await clickSel('.release.ready'); await wait(900); await record('released-m1');
-  await clickStop('Dec 19'); await wait(1200); await record('dec19-ready');
-  await clickSel('.release.ready'); await wait(900); await record('closed');
+  await clickSel('.release.ready'); await settle(1500); await record('hold-oct12');
+  await clickStop('Oct 22'); await settle(1200); await record('oct22');
+  await clickStop('Oct 26'); await settle(1200); await record('oct26');
+  await clickStop('Nov 19'); await settle(1200); await record('nov19-ready');
+  await clickSel('.release.ready'); await settle(900); await record('released-m1');
+  await clickStop('Dec 19'); await settle(1200); await record('dec19-ready');
+  await clickSel('.release.ready'); await settle(900); await record('closed');
 
-  await open(`${BASE}/`); await clickSel('.release.ready'); await wait(1200);
-  await clickStop('Give the rest back'); await wait(200); await record('void-confirm');
-  await clickStop('Return it'); await wait(900); await record('voided');
+  await open(`${BASE}/`); await clickSel('.release.ready'); await settle(1200);
+  await clickStop('Give the rest back'); await settle(200); await record('void-confirm');
+  await clickStop('Return it'); await settle(900); await record('voided');
   await open(`${BASE}/c/no-such-hold`); await record('gone');
 
   // Hover the chart on the wide layout, to check the tooltip stays in bounds.
-  await open(`${BASE}/`); await clickSel('.release.ready'); await wait(1200);
+  await open(`${BASE}/`); await clickSel('.release.ready'); await settle(1200);
   const box = await run(`(() => { const r = document.querySelector('.chart svg').getBoundingClientRect(); window.scrollTo(0, r.top + scrollY - 40); const n = document.querySelector('.chart svg').getBoundingClientRect(); return { x: n.left, y: n.top, w: n.width }; })()`);
   await wait(150);
   await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: box.x + box.w - 6, y: box.y + 90 });
@@ -95,7 +115,9 @@ for (const r of results) {
   if (r.overflow > 0 || r.wide?.length) problems.push(`[${r.step}] overflow ${r.overflow} ${r.wide ?? ''}`);
   if (r.tip && (r.tip.hidden || r.tip.left < 0 || r.tip.right > r.tip.inner)) problems.push(`[${r.step}] tooltip out of bounds`);
 }
+timings.sort((a, b) => a - b);
 console.log(`${results.length} steps, ${problems.length} problems`);
+console.log(`page load to network quiet: ${timings.length} loads, median ${timings[timings.length >> 1]} ms, slowest ${timings.at(-1)} ms`);
 for (const problem of problems) console.log(problem);
 ws.close();
 chrome.kill();
