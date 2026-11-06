@@ -43,14 +43,14 @@ let seq = 0;
 const pending = new Map();
 const problems = [];
 let step = '';
-const inFlight = new Set();
+const inFlight = new Map();
 let lastActivity = Date.now();
 let expected404 = false;
 let viewRequests = 0;
 ws.addEventListener('message', ({ data }) => {
   const m = JSON.parse(data);
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); return; }
-  if (m.method === 'Network.requestWillBeSent') { inFlight.add(m.params.requestId); lastActivity = Date.now(); if (m.params.request.url.endsWith('/view')) viewRequests += 1; }
+  if (m.method === 'Network.requestWillBeSent') { inFlight.set(m.params.requestId, m.params.request.url); lastActivity = Date.now(); if (m.params.request.url.endsWith('/view')) viewRequests += 1; }
   if (m.method === 'Fetch.requestPaused') send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 404, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from('{"error":"NOT_FOUND"}').toString('base64') });
   if (m.method === 'Network.loadingFinished' || m.method === 'Network.loadingFailed') { inFlight.delete(m.params.requestId); lastActivity = Date.now(); }
   if (m.method === 'Runtime.exceptionThrown') problems.push(`[${step}] exception: ${m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text}`);
@@ -72,7 +72,7 @@ async function settle(ms) {
   const started = Date.now();
   await wait(ms);
   while (inFlight.size > 0 || Date.now() - lastActivity < 300) {
-    if (Date.now() - started > 90_000) throw new Error(`${step}: network still busy after 90 s`);
+    if (Date.now() - started > 90_000) throw new Error(`${step}: network still busy after 90 s: ${[...inFlight.values()].join(', ') || 'no request open'}`);
     await wait(50);
   }
   return Date.now() - started;
@@ -149,8 +149,11 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   if (width === 1280 && scheme === 'light') {
     const downloads = mkdtempSync(join(tmpdir(), 'pbp-csv-'));
     await send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: downloads });
-    await clickStop('Download CSV'); await wait(800);
-    const files = readdirSync(downloads);
+    await clickStop('Download CSV');
+    // Waits for the finished file, since Chrome writes it under a temporary name first.
+    const finished = () => readdirSync(downloads).filter((name) => name.endsWith('.csv'));
+    for (let waited = 0; finished().length === 0 && waited < 15_000; waited += 100) await wait(100);
+    const files = finished();
     const lines = files[0] === undefined ? [] : readFileSync(join(downloads, files[0]), 'utf8').trim().split('\n');
     console.log(`csv: ${files[0]}, ${lines.length - 1} rows`);
     if (lines.length - 1 !== Number(narrowed.facts['Days shown'])) problems.push(`[${step}] CSV has ${lines.length - 1} lines after the header, showing ${narrowed.facts['Days shown']}`);

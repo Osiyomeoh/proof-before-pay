@@ -2,6 +2,7 @@
 // Nothing here captures. The money routes in http.ts remain the only way to release or void.
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { acceptsBrotli, brotli } from './compress.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { addDays, isValidDate } from '../proof/engine.ts';
 import type { Fleet, Verdict } from '../proof/engine.ts';
@@ -52,6 +53,15 @@ const STATIC_FILES: ReadonlyArray<[string, URL, string]> = [
   ['/fonts/mono-500.woff2', new URL('ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2', FONTS), 'font/woff2'],
 ];
 
+type StaticFile = { body: Buffer; type: string; br: Buffer | undefined };
+
+// Quality 9: the grid bundle takes 175 ms and 345 KB here. Quality 11 saves 30 KB more and takes 5.9 s, too slow to start on 0.25 vCPU.
+// woff2 is already compressed.
+const FILES = new Map(STATIC_FILES.map(([path, file, type]): [string, StaticFile] => {
+  const body = readFileSync(file);
+  return [path, { body, type, br: type.startsWith('font/') ? undefined : brotli(body, 9) }];
+}));
+
 // AG Grid adds its styles at runtime and draws icons from data: URLs: https://www.ag-grid.com/javascript-data-grid/security/
 const contentPolicy = (nonce: string) =>
   `default-src 'none'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
@@ -62,7 +72,6 @@ export function createApp(deps: AppDeps) {
   const { payments, proof, fleet, lastDate, mode, publicUrl, explain } = deps;
   const now = deps.now ?? Date.now;
   const maxHolds = deps.maxHoldsPerMinute ?? 20;
-  const files = new Map(STATIC_FILES.map(([path, file, type]) => [path, { body: readFileSync(file), type }]));
   const page = readFileSync(new URL('index.html', PUBLIC_DIR), 'utf8');
   let holdsInMinute: { minute: number; count: number } = { minute: 0, count: 0 };
 
@@ -96,11 +105,13 @@ export function createApp(deps: AppDeps) {
         send(res, 200, { ok: true, mode });
         return true;
       }
-      const file = files.get(path);
+      const file = FILES.get(path);
       if (file !== undefined) {
-        const cache = path.startsWith('/vendor/') ? { 'Cache-Control': 'public, max-age=86400' } : {};
-        res.writeHead(200, { 'Content-Type': file.type, 'X-Content-Type-Options': 'nosniff', ...cache });
-        res.end(file.body);
+        const cache = path.startsWith('/vendor/') || path.startsWith('/fonts/') ? { 'Cache-Control': 'public, max-age=86400' } : {};
+        const br = acceptsBrotli(req.headers['accept-encoding']) ? file.br : undefined;
+        const encoding = { ...(file.br === undefined ? {} : { Vary: 'Accept-Encoding' }), ...(br === undefined ? {} : { 'Content-Encoding': 'br' }) };
+        res.writeHead(200, { 'Content-Type': file.type, 'X-Content-Type-Options': 'nosniff', ...cache, ...encoding });
+        res.end(br ?? file.body);
         return true;
       }
     }

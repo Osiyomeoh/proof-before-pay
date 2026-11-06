@@ -3,6 +3,7 @@
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http';
 import type { Payments } from '../payments/service.ts';
 import type { WebhookCheck, WebhookHeaders } from '../paypal/webhook.ts';
+import { acceptsBrotli, brotli } from './compress.ts';
 
 const MAX_BODY_BYTES = 1024 * 1024;
 
@@ -27,9 +28,19 @@ async function readBody(req: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
+const COMPRESS_FROM_BYTES = 1024;
+
 export function send(res: ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
-  res.end(JSON.stringify(body));
+  const json = Buffer.from(JSON.stringify(body));
+  if (json.length < COMPRESS_FROM_BYTES) {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(json);
+    return;
+  }
+  // Quality 5: this runs on the request path, and the ledger reply goes from 118 KB to 11 KB.
+  const br = acceptsBrotli(res.req.headers['accept-encoding']) ? brotli(json, 5) : undefined;
+  res.writeHead(status, { 'Content-Type': 'application/json', Vary: 'Accept-Encoding', ...(br === undefined ? {} : { 'Content-Encoding': 'br' }) });
+  res.end(br ?? json);
 }
 
 // Requiring JSON blocks a plain cross-site form post from reaching a money route.

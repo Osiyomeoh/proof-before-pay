@@ -2,9 +2,11 @@
 // Captures are counted at the PayPal client, so a refused release is proven to make no call.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, get } from 'node:http';
+import type { IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
+import { brotliDecompressSync } from 'node:zlib';
 import { createRecordedExplainer } from '../src/ai/recorded.ts';
 import { createExplainer } from '../src/ai/explain.ts';
 import { createPayments } from '../src/payments/service.ts';
@@ -322,6 +324,49 @@ test('pages carry a strict content policy, and paths outside the fixed list are 
   for (const path of ['/.env', '/public/app.js', '/..%2f.env', '/fonts/../../.env', '/WIN-DECISION.md']) {
     assert.equal((await fetch(`${base}${path}`)).status, 404, path);
   }
+});
+
+// fetch decompresses and sets its own Accept-Encoding, so these tests read the bytes as sent.
+function rawGet(path: string, acceptEncoding: string): Promise<{ headers: IncomingHttpHeaders; body: Buffer }> {
+  return new Promise((resolve, reject) => {
+    get(`${base}${path}`, { headers: { 'Accept-Encoding': acceptEncoding } }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => resolve({ headers: res.headers, body: Buffer.concat(chunks) }));
+    }).on('error', reject);
+  });
+}
+
+test('text is compressed when the browser accepts it, and arrives with the same bytes', async () => {
+  const plain = await fetch(`${base}/vendor/ag-grid.min.js`, { headers: { 'Accept-Encoding': 'identity' } });
+  assert.equal(plain.headers.get('content-encoding'), null);
+  assert.equal(plain.headers.get('vary'), 'Accept-Encoding');
+  const original = Buffer.from(await plain.arrayBuffer());
+
+  const raw = await rawGet('/vendor/ag-grid.min.js', 'gzip, br;q=0.5');
+  assert.equal(raw.headers['content-encoding'], 'br');
+  assert.equal(raw.headers['vary'], 'Accept-Encoding');
+  assert.ok(raw.body.length < original.length / 3, `${raw.body.length} of ${original.length} bytes`);
+  assert.ok(brotliDecompressSync(raw.body).equals(original));
+
+  assert.equal((await rawGet('/vendor/ag-grid.min.js', 'gzip, br;q=0')).headers['content-encoding'], undefined);
+  assert.equal((await rawGet('/vendor/ag-grid.min.js', 'gzip')).headers['content-encoding'], undefined);
+  const font = await rawGet('/fonts/sans-400.woff2', 'br');
+  assert.equal(font.headers['content-encoding'], undefined);
+  assert.match(font.headers['cache-control'] ?? '', /max-age=86400/);
+});
+
+test('a large JSON reply is compressed and a small one is not', async () => {
+  const id = await newHold();
+  const ledger = await rawGet(`/api/contracts/${id}/ledger`, 'br');
+  assert.equal(ledger.headers['content-encoding'], 'br');
+  assert.equal(ledger.headers['vary'], 'Accept-Encoding');
+  const rows = JSON.parse(brotliDecompressSync(ledger.body).toString()).rows;
+  assert.ok(rows.length > 0);
+  const plain = await rawGet(`/api/contracts/${id}/ledger`, 'identity');
+  assert.equal(plain.headers['content-encoding'], undefined);
+  assert.deepEqual(JSON.parse(plain.body.toString()).rows, rows);
+  assert.equal((await rawGet('/healthz', 'br')).headers['content-encoding'], undefined);
 });
 
 test('the browser code holds no secret names and no capture logic', () => {
