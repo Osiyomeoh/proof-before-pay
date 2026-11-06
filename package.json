@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "eval": "node --disable-warning=ExperimentalWarning scripts/eval-verdict.ts",
     "sandbox": "node --disable-warning=ExperimentalWarning scripts/sandbox-run.ts",
-    "explain": "node --disable-warning=ExperimentalWarning scripts/explain-run.ts"
+    "explain": "node --disable-warning=ExperimentalWarning scripts/explain-run.ts",
+    "deploy": "node scripts/deploy-apprunner.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.19.2",
