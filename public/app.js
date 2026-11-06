@@ -62,14 +62,51 @@ async function startHold(button, notice) {
   notice.textContent = status === 429 ? 'Too many new holds this minute. Try again shortly.' : 'The hold could not be started. No money moved. Please try again.';
 }
 
-async function renderLanding() {
+async function loadMode() {
   const health = await api('/healthz').catch(() => null);
   const mode = health?.data?.mode;
   if (mode) setMode(mode);
+  return mode;
+}
+
+function holdStarter(label) {
   const notice = el('p', { class: 'notice', hidden: true });
-  const button = el('button', { class: 'release ready', type: 'button', on: { click: () => startHold(button, notice) } }, 'Hold $100.00 and watch the check');
+  const button = el('button', { class: 'release ready', type: 'button', on: { click: () => startHold(button, notice) } }, label);
   button.style.width = 'auto';
   button.style.paddingInline = '24px';
+  return { button, notice };
+}
+
+// Opening this page creates nothing, so a link preview or a crawler can't place a hold. Each press starts a new one,
+// which also means a judge never meets an authorization that has expired.
+async function renderJudge() {
+  const mode = await loadMode();
+  const { button, notice } = holdStarter('Start a fresh hold');
+  const steps = [
+    ['Start a fresh hold', mode === 'sample' ? '$100.00 goes on hold for two milestones. You land on Oct 12, 2020, with the inverter at zero and Release locked.' : 'Approve $100.00 on PayPal with the sandbox buyer login in the README. You land on Oct 12, 2020, with the inverter at zero and Release locked.'],
+    ['Tap Oct 22', 'Output returns, and Release stays locked. One good day isn\'t enough.'],
+    ['Tap Oct 26', 'Back to zero. A rule that pays after one good day would already have paid, on Oct 23 and 24.'],
+    ['Tap Nov 19, then Release $40.00', 'The last 7 days pass the check, so Release unlocks. Nothing is captured until you tap it.'],
+    ['Tap Dec 19, then Release $60.00', 'The second milestone is checked 30 days later. Releasing it closes the hold.'],
+    ['Check our work', 'In the ledger, tap Rules disagree and download the CSV. Or start another hold and give the money back.'],
+  ];
+  app.replaceChildren(el('section', { class: 'landing' },
+    el('div', {},
+      el('h1', {}, 'Seven taps through a real outage.'),
+      el('p', { class: 'lede' }, 'These are real 2020 readings from a commercial roof in Maui. Try to get paid before the system has proved itself.'),
+      el('div', { class: 'start' },
+        button,
+        el('small', {}, mode === 'sample' ? 'Sample mode: no login and no money. PayPal and AI replies are recorded.' : 'Real PayPal sandbox calls. Test money only.'),
+      ),
+      notice,
+    ),
+    el('ol', { class: 'steps guide' }, ...steps.map(([title, text]) => el('li', {}, el('b', {}, title), el('span', {}, text)))),
+  ));
+}
+
+async function renderLanding() {
+  const mode = await loadMode();
+  const { button, notice } = holdStarter('Hold $100.00 and watch the check');
 
   const steps = [
     ['PayPal holds the money', 'The buyer approves a $100.00 authorization for two milestones. Nothing is captured.'],
@@ -87,6 +124,7 @@ async function renderLanding() {
         el('small', {}, mode === 'sample' ? 'Sample mode: no login and no money. PayPal replies are recorded.' : 'You\'ll approve the hold with a PayPal sandbox buyer. Test money only.'),
       ),
       notice,
+      el('p', { class: 'guide-link' }, el('a', { href: '/judge' }, 'Judging this? Follow the guided test')),
     ),
     el('ol', { class: 'steps' }, ...steps.map(([title, text]) => el('li', {}, el('b', {}, title), el('span', {}, text)))),
   ));
@@ -456,6 +494,7 @@ new ResizeObserver(() => {
 }).observe(document.documentElement);
 
 async function main() {
+  if (location.pathname === '/judge') return renderJudge();
   const match = location.pathname.match(/^\/c\/([^/]+)$/);
   if (match === null) return renderLanding();
   state.id = decodeURIComponent(match[1]);

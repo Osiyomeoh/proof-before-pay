@@ -17,6 +17,7 @@ import type { LedgerRow } from '../src/proof/ledger.ts';
 import { commonDates, loadMauiFleet } from '../src/proof/maui.ts';
 import { createApp } from '../src/server/app.ts';
 import type { AppDeps } from '../src/server/app.ts';
+import { DEMO_MILESTONES } from '../src/server/demo.ts';
 import type { ContractView } from '../src/server/demo.ts';
 import { createHandler } from '../src/server/http.ts';
 
@@ -262,6 +263,52 @@ test('HEAD works on pages and static files, and never reaches the PayPal return'
   }
   const id = await newHold();
   assert.equal((await fetch(`${base}/paypal/return?contract=${id}`, { method: 'HEAD', redirect: 'manual' })).status, 404);
+});
+
+test('opening the judge page creates nothing, and each press starts a new hold', async () => {
+  let orders = 0;
+  const watching: PayPalClient = {
+    ...recorded,
+    createAuthorizeOrder: (input) => {
+      orders += 1;
+      return recorded.createAuthorizeOrder(input);
+    },
+  };
+  const own = startServer(watching, { maxHoldsPerMinute: 1000 });
+  await new Promise<void>((resolve) => own.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${(own.address() as AddressInfo).port}`;
+  try {
+    for (const method of ['GET', 'HEAD']) {
+      const page = await fetch(`${url}/judge`, { method });
+      assert.equal(page.status, 200);
+      assert.match(page.headers.get('content-security-policy') ?? '', /script-src 'self'/);
+    }
+    assert.equal(orders, 0);
+    const press = async () => ((await (await fetch(`${url}/api/contracts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })).json()) as { id: string }).id;
+    const ids = [await press(), await press()];
+    assert.notEqual(ids[0], ids[1]);
+    assert.equal(orders, 2);
+  } finally {
+    own.close();
+  }
+});
+
+test('the judge page says only what the real data shows', async () => {
+  const code = readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  const rows = await ledger.through('2020-11-19');
+  const row = (date: string) => rows.find((r) => r.date === date);
+  assert.equal(row('2020-10-12')?.kwh, 0);
+  assert.equal(row('2020-10-12')?.status, 'HOLD');
+  assert.ok((row('2020-10-22')?.kwh ?? 0) > 0);
+  assert.equal(row('2020-10-22')?.status, 'HOLD');
+  assert.equal(row('2020-10-26')?.kwh, 0);
+  assert.equal(row('2020-11-19')?.status, 'RELEASE_READY');
+  const earlyPays = rows.filter((r) => r.date >= '2020-10-08' && r.date <= '2020-10-26' && r.oneGoodDay === 'PAYS').map((r) => r.date);
+  assert.deepEqual(earlyPays, ['2020-10-23', '2020-10-24']);
+  assert.match(code, /would already have paid, on Oct 23 and 24/);
+  assert.match(code, /Release \$40\.00/);
+  assert.match(code, /Release \$60\.00/);
+  assert.deepEqual([...DEMO_MILESTONES].map((m) => m.amountCents), [4000, 6000]);
 });
 
 test('pages carry a strict content policy, and paths outside the fixed list are not served', async () => {

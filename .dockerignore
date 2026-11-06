@@ -1,0 +1,8 @@
+# Allow-list, so .env, WIN-DECISION.md and .git can never reach an image.
+*
+!package.json
+!package-lock.json
+!src
+!public
+!data
+!spike/explain-run.json

@@ -125,11 +125,20 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   const record = async (name) => { step = `${tag} ${name}`; const m = await run(measure); results.push({ step, ...m }); await shot(`${tag}-${name}`); };
 
   await open(`${BASE}/`); await record('landing');
+  // The guided test: each thing it tells a judge to do has to exist and do what it says.
+  const heading = () => run(`document.querySelector('h1')?.textContent`);
+  const expectHeading = async (text) => { const shown = await heading(); if (shown !== text) problems.push(`[${step}] heading is "${shown}", expected "${text}"`); };
+  await open(`${BASE}/judge`); await record('judge');
+  await expectHeading('Seven taps through a real outage.');
   await clickSel('.release.ready'); await settle(1500); await record('hold-oct12');
+  await expectHeading('$40.00 stays on hold.');
   await checkLedger('oct12', 'Oct 12, 2020');
   await clickStop('Oct 22'); await settle(1200); await record('oct22');
+  await expectHeading('$40.00 stays on hold.');
   await clickStop('Oct 26'); await settle(1200); await record('oct26');
+  await expectHeading('$40.00 stays on hold.');
   await clickStop('Nov 19'); await settle(1200); await record('nov19-ready');
+  await expectHeading('$40.00 can be released.');
   const all = await checkLedger('nov19', 'Nov 19, 2020');
 
   // Narrow to the days the rules disagree, and check the summary follows the filter.

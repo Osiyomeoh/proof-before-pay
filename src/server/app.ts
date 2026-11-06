@@ -88,7 +88,7 @@ export function createApp(deps: AppDeps) {
   return async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
     // Node leaves the body out of a HEAD response. The PayPal return below stays GET only, because it places a hold.
     if (req.method === 'GET' || req.method === 'HEAD') {
-      if (path === '/' || /^\/c\/[^/]+$/.test(path)) {
+      if (path === '/' || path === '/judge' || /^\/c\/[^/]+$/.test(path)) {
         servePage(res);
         return true;
       }
