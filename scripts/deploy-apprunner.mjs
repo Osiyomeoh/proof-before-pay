@@ -19,7 +19,7 @@ const mask = (text) => (account === '' ? text : text.replaceAll(account, '<accou
 
 function run(cmd, args, options = {}) {
   try {
-    return execFileSync(cmd, args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], ...options }).trim();
+    return (execFileSync(cmd, args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], ...options }) ?? '').trim();
   } catch (error) {
     throw new Error(mask(`${cmd} ${args.slice(0, 2).join(' ')} failed: ${String(error.stderr ?? error.message).trim()}`));
   }
