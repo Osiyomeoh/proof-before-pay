@@ -131,7 +131,7 @@ async function renderLanding() {
 }
 
 // ---------- Contract ----------
-const state = { id: null, view: null, json: '', notice: null, explanationKey: null, explanation: null, confirmVoid: false, busy: false, holdNote: null };
+const state = { id: null, view: null, json: '', notice: null, explanationKey: null, explanation: null, recordKey: null, record: null, confirmVoid: false, busy: false, holdNote: null };
 let explainTimer = 0;
 let chartHost = null;
 let chartDays = [];
@@ -155,6 +155,7 @@ async function refresh() {
   setMode(data.mode);
   render();
   loadExplanation();
+  loadRecord();
 }
 
 function renderGone() {
@@ -390,6 +391,8 @@ function renderMoney(view) {
   if (view.authorizationId) facts.push(el('span', {}, 'Authorization ', el('span', { class: 'mono' }, view.authorizationId)));
   if (view.expiresAt && view.status === 'HELD') facts.push(el('span', {}, `Hold expires ${fullDate(view.expiresAt.slice(0, 10))}`));
   if (facts.length > 0) parts.push(el('div', { class: 'facts' }, ...facts));
+  recordHost = el('div', { class: 'paypal-record' });
+  parts.push(recordHost);
   if (view.status === 'HELD' && view.heldCents > 0) {
     parts.push(state.confirmVoid
       ? el('div', { class: 'void' },
@@ -399,6 +402,58 @@ function renderMoney(view) {
       : el('div', { class: 'void' }, el('button', { class: 'linkish', type: 'button', on: { click: () => { state.confirmVoid = true; render(); } } }, 'Give the rest back to the buyer')));
   }
   return el('section', { class: 'card' }, ...parts);
+}
+
+// PayPal's own record of this order, read with the Agent Toolkit's get_order tool. It's asked for
+// again only when the money changes, so stepping through days doesn't call PayPal.
+function loadRecord() {
+  const view = state.view;
+  const key = view.authorizationId ? JSON.stringify([view.status, view.authorizationId, view.milestones.map((m) => [m.status, m.captureId])]) : null;
+  if (key === state.recordKey) return;
+  state.recordKey = key;
+  state.record = null;
+  renderRecord();
+  if (key === null) return;
+  api(`/api/contracts/${encodeURIComponent(state.id)}/paypal-record`).catch(() => ({ ok: false, data: {} })).then(({ ok, data }) => {
+    if (state.recordKey !== key) return;
+    state.record = ok && data.record ? data : { failed: true };
+    renderRecord();
+  });
+}
+
+const AUTH_TEXT = { CREATED: 'hold open', PARTIALLY_CAPTURED: 'hold open', PENDING: 'hold open', CAPTURED: 'hold fully captured', VOIDED: 'rest of the hold voided', EXPIRED: 'hold expired', DENIED: 'hold denied' };
+
+let recordHost = null;
+function renderRecord() {
+  if (recordHost === null || state.view === null) return;
+  const sample = state.view.mode === 'sample';
+  const parts = [el('h3', {}, 'PayPal\'s own record')];
+  const reply = state.record;
+  if (state.recordKey === null) {
+    parts.push(el('p', { class: 'note' }, 'Appears once the hold is placed.'));
+  } else if (reply === null) {
+    parts.push(el('p', { class: 'note' }, sample ? 'Loading the recorded reply…' : 'Asking PayPal…'));
+  } else if (reply.failed) {
+    parts.push(el('p', { class: 'note' }, 'Couldn\'t read PayPal\'s record just now. This doesn\'t change the hold.'));
+  } else {
+    const { record, check } = reply;
+    const auth = record.authorizations.find((a) => a.id === state.view.authorizationId) ?? null;
+    const captured = check.capturedCents.paypal;
+    parts.push(el('dl', { class: 'record' },
+      el('div', {}, el('dt', {}, 'Order'), el('dd', { class: 'mono' }, record.status ?? 'not given')),
+      el('div', {}, el('dt', {}, 'Authorization'), el('dd', { class: 'mono' }, auth?.status ?? 'not listed')),
+      el('div', {}, el('dt', {}, 'Captured'), el('dd', { class: 'mono' }, captured === null ? 'unreadable' : usd(captured))),
+    ));
+    const hold = AUTH_TEXT[auth?.status] ?? `authorization ${auth?.status ?? 'not listed'}`;
+    parts.push(check.agrees
+      ? el('p', { class: 'match yes' }, `Agrees with this page: ${usd(check.capturedCents.app)} captured, ${hold}.`)
+      : el('p', { class: 'match no' }, `Differs from this page. PayPal: ${captured === null ? 'an amount this page can\'t read' : usd(captured)} captured, ${hold}. This page: ${usd(check.capturedCents.app)} captured, hold ${state.view.status === 'HELD' ? 'open' : 'closed'}.`));
+    parts.push(el('p', { class: 'note' }, sample
+      ? 'Recorded reply in the shape of the Agent Toolkit\'s get_order tool, built from this demo\'s state. No PayPal call in sample mode.'
+      : `Read live from the PayPal sandbox with the Agent Toolkit's get_order tool at ${reply.readAt.slice(11, 19)} UTC. Read-only.`));
+  }
+  parts.push(el('p', { class: 'note' }, 'This read can\'t move money: the app only ever calls get_order, and no AI is involved.'));
+  recordHost.replaceChildren(...parts);
 }
 
 const STATUS_TEXT = {
@@ -479,6 +534,7 @@ function render() {
     ),
   ));
   renderAi();
+  renderRecord();
   drawChart(chartHost, chartDays, 7);
   ledger.show(view.id, view.clock.date, view.source.unit);
 }

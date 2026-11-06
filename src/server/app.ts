@@ -7,7 +7,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { addDays, isValidDate } from '../proof/engine.ts';
 import type { Fleet, Verdict } from '../proof/engine.ts';
 import type { LedgerRow } from '../proof/ledger.ts';
-import type { Payments, Proof } from '../payments/service.ts';
+import type { Contract, Payments, Proof } from '../payments/service.ts';
+import { checkRecord } from '../paypal/order-record.ts';
+import type { TimedRecord } from '../paypal/order-record.ts';
 import { DEMO_DESCRIPTION, DEMO_MILESTONES, DEMO_UNIT, buildView, currentIndex, opensOn, seenDate } from './demo.ts';
 import { readJson, send } from './http.ts';
 
@@ -28,6 +30,8 @@ export type AppDeps = {
   publicUrl: string;
   explain: (verdict: Verdict) => Promise<AppExplanation>;
   ledger: (through: string) => Promise<readonly LedgerRow[]>;
+  // PayPal's own record of the order, read with the Agent Toolkit's get_order tool. Read-only.
+  orderRecord: (contract: Contract) => Promise<TimedRecord>;
   now?: () => number;
   maxHoldsPerMinute?: number;
 };
@@ -190,6 +194,28 @@ export function createApp(deps: AppDeps) {
       }
       const through = seenDate(contract);
       send(res, 200, { unit: DEMO_UNIT, through, judgedFrom: addDays(through, -6), rows: await deps.ledger(through) });
+      return true;
+    }
+
+    const recordMatch = path.match(/^\/api\/contracts\/([^/]+)\/paypal-record$/);
+    if (req.method === 'GET' && recordMatch?.[1] !== undefined) {
+      const contract = payments.get(recordMatch[1]);
+      if (contract === null) {
+        send(res, 404, { error: 'NOT_FOUND' });
+        return true;
+      }
+      // Until the buyer approves there is no hold to compare.
+      if (contract.authorizationId === null) {
+        send(res, 200, { record: null, check: null, readAt: null });
+        return true;
+      }
+      try {
+        const { record, readAt } = await deps.orderRecord(contract);
+        send(res, 200, { record, check: checkRecord(record, contract), readAt });
+      } catch (error) {
+        console.error('PayPal record read failed:', error instanceof Error ? error.message.slice(0, 200) : 'unknown error');
+        send(res, 503, { error: 'PAYPAL_UNAVAILABLE' });
+      }
       return true;
     }
 

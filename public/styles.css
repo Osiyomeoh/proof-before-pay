@@ -192,6 +192,16 @@ button { font: inherit; }
 .bar .b-back { background: var(--line); }
 .facts { margin-top: 12px; display: grid; gap: 4px; font-size: 13px; color: var(--ink-3); }
 .facts span { overflow-wrap: anywhere; }
+.paypal-record { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line); display: grid; gap: 8px; min-width: 0; }
+.paypal-record h3 { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.record { display: grid; gap: 4px; }
+.record div { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; min-width: 0; }
+.record dt { font-size: 13px; color: var(--ink-3); }
+.record dd { margin: 0; font-size: 13px; text-align: right; overflow-wrap: anywhere; }
+.paypal-record .match { font-size: 14px; padding: 6px 8px; border-radius: 4px; }
+.paypal-record .match.yes { background: var(--ready-bg); }
+.paypal-record .match.no { background: var(--hold-bg); }
+.paypal-record .note { font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
 .void { margin-top: 12px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 14px; }
 .miles { display: grid; gap: 12px; }
 .miles li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; }

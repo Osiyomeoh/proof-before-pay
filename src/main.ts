@@ -5,7 +5,9 @@ import { createServer } from 'node:http';
 import { createBedrockExplainer } from './ai/bedrock.ts';
 import { createRecordedExplainer } from './ai/recorded.ts';
 import { createPayments } from './payments/service.ts';
+import type { Contract } from './payments/service.ts';
 import { createPayPalClient } from './paypal/client.ts';
+import { cachedRecords, createOrderReader, loadPayPalToolkit, recordedOrder } from './paypal/order-record.ts';
 import { createRecordedPayPal } from './paypal/recorded.ts';
 import { createWebhookVerifier } from './paypal/webhook.ts';
 import { judge } from './proof/engine.ts';
@@ -34,8 +36,13 @@ const payments = createPayments({ paypal, proof });
 const port = Number(process.env['PORT'] ?? 3000);
 const publicUrl = process.env['PUBLIC_URL'] ?? process.env['RENDER_EXTERNAL_URL'] ?? `http://localhost:${port}`;
 
+// PayPal's own record, read with the Agent Toolkit's get_order tool. In sample mode it's a recorded reply built from this app's state.
+const orderRecord = sample || !clientId || !clientSecret
+  ? async (contract: Contract) => ({ record: recordedOrder(contract), readAt: new Date().toISOString() })
+  : cachedRecords(createOrderReader(await loadPayPalToolkit(clientId, clientSecret)));
+
 const ledger = createLedger(fleet, DEMO_UNIT, lastDate);
-const app = createApp({ payments, proof, fleet, lastDate, mode: sample ? 'sample' : 'sandbox', publicUrl, explain: (verdict) => explainer.explain(verdict), ledger: ledger.through });
+const app = createApp({ payments, proof, fleet, lastDate, mode: sample ? 'sample' : 'sandbox', publicUrl, explain: (verdict) => explainer.explain(verdict), ledger: ledger.through, orderRecord });
 const verifyWebhook = createWebhookVerifier({ webhookId: process.env['PAYPAL_WEBHOOK_ID'] });
 
 // Containers must listen on 0.0.0.0, for App Runner (the primary host) and Render (the backup): https://render.com/docs/web-services

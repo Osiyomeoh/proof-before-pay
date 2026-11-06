@@ -12,6 +12,8 @@ import { createExplainer } from '../src/ai/explain.ts';
 import { createPayments } from '../src/payments/service.ts';
 import { PayPalError } from '../src/paypal/client.ts';
 import type { CaptureInput, PayPalClient } from '../src/paypal/client.ts';
+import { recordedOrder } from '../src/paypal/order-record.ts';
+import type { OrderRecord, RecordCheck } from '../src/paypal/order-record.ts';
 import { createRecordedPayPal } from '../src/paypal/recorded.ts';
 import { judge } from '../src/proof/engine.ts';
 import { createLedger } from '../src/proof/ledger.ts';
@@ -32,7 +34,7 @@ const ledger = createLedger(fleet, '01', lastDate);
 function startServer(paypal: PayPalClient, options: Partial<AppDeps> = {}) {
   const payments = createPayments({ paypal, proof });
   const explainer = createRecordedExplainer();
-  const app = createApp({ payments, proof, fleet, lastDate, mode: 'sample', publicUrl: 'http://localhost', explain: (v) => explainer.explain(v), ledger: ledger.through, ...options });
+  const app = createApp({ payments, proof, fleet, lastDate, mode: 'sample', publicUrl: 'http://localhost', explain: (v) => explainer.explain(v), ledger: ledger.through, orderRecord: async (c) => ({ record: recordedOrder(c), readAt: '2026-11-06T00:00:00.000Z' }), ...options });
   const server = createServer(createHandler({ payments, verifyWebhook: async () => ({ ok: false, reason: 'NOT_CONFIGURED' }), app }));
   return server;
 }
@@ -192,6 +194,70 @@ test('full story: hold, locked outage, release on Nov 19, second milestone 30 da
   assert.equal(closed.releasedCents, 10000);
   assert.equal(closed.heldCents, 0);
   assert.equal((await replay(id, '2021-02-01')).status, 409);
+});
+
+type RecordReply = { record: OrderRecord | null; check: RecordCheck | null; readAt: string | null };
+const paypalRecord = async (id: string) => {
+  const res = await fetch(`${base}/api/contracts/${id}/paypal-record`);
+  return { status: res.status, body: (await res.json()) as RecordReply };
+};
+
+test("PayPal's record agrees with the page through hold, release and close, and carries no buyer data", async () => {
+  const id = await newHold();
+  const steps: Array<[string, string, number]> = [];
+  const look = async () => {
+    const { status, body } = await paypalRecord(id);
+    assert.equal(status, 200);
+    assert.equal(body.record?.source, 'recorded');
+    assert.equal(body.record?.tool, 'get_order');
+    assert.equal(body.check?.agrees, true);
+    assert.ok(!/payer|payment_source|email/i.test(JSON.stringify(body)));
+    steps.push([body.record?.authorizations[0]?.status ?? '', body.record?.status ?? '', body.check?.capturedCents.paypal ?? -1]);
+  };
+  const before = captures.length;
+  await look();
+  await replay(id, '2020-11-19');
+  await look();
+  assert.equal(captures.length, before, 'reading the record captures nothing');
+  await release(id, 'm1');
+  await look();
+  await replay(id, '2020-12-19');
+  await release(id, 'm2');
+  await look();
+  assert.deepEqual(steps, [
+    ['CREATED', 'COMPLETED', 0],
+    ['CREATED', 'COMPLETED', 0],
+    ['PARTIALLY_CAPTURED', 'COMPLETED', 4000],
+    ['CAPTURED', 'COMPLETED', 10000],
+  ]);
+});
+
+test("PayPal's record is empty before approval, 404 for an unknown hold, and 503 when PayPal fails", async () => {
+  assert.equal((await paypalRecord('nope')).status, 404);
+  const failing = startServer(counting, { mode: 'sandbox', maxHoldsPerMinute: 1000, orderRecord: async () => { throw new Error('boom'); } });
+  await new Promise<void>((resolve) => failing.listen(0, '127.0.0.1', resolve));
+  const own = `http://127.0.0.1:${(failing.address() as AddressInfo).port}`;
+  try {
+    const created = await fetch(`${own}/api/contracts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const { id } = (await created.json()) as { id: string };
+    const waiting = await fetch(`${own}/api/contracts/${id}/paypal-record`);
+    assert.equal(waiting.status, 200);
+    assert.deepEqual(await waiting.json(), { record: null, check: null, readAt: null });
+  } finally {
+    failing.close();
+  }
+  const broken = startServer(counting, { maxHoldsPerMinute: 1000, orderRecord: async () => { throw new Error('PayPal said no'); } });
+  await new Promise<void>((resolve) => broken.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${(broken.address() as AddressInfo).port}`;
+  try {
+    const created = await fetch(`${url}/api/contracts`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const { id } = (await created.json()) as { id: string };
+    const res = await fetch(`${url}/api/contracts/${id}/paypal-record`);
+    assert.equal(res.status, 503);
+    assert.deepEqual(await res.json(), { error: 'PAYPAL_UNAVAILABLE' });
+  } finally {
+    broken.close();
+  }
 });
 
 test('giving the rest back after one release returns the remainder and blocks later releases', async () => {

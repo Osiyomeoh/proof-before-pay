@@ -117,6 +117,14 @@ async function checkLedger(label, expectTop) {
   return l;
 }
 
+// PayPal's own record (the Agent Toolkit's get_order read) has to agree with the page at each money step.
+const recordLines = [];
+async function expectRecord(text) {
+  const shown = await run(`document.querySelector('.paypal-record .match')?.textContent ?? document.querySelector('.paypal-record')?.textContent ?? 'no record panel'`);
+  recordLines.push(`${step}: ${shown}`);
+  if (shown !== `Agrees with this page: ${text}.`) problems.push(`[${step}] PayPal record says "${shown}", expected "Agrees with this page: ${text}."`);
+}
+
 const results = [];
 for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], [1280, 800, 'light'], [1280, 800, 'dark']]) {
   const tag = `${width}-${scheme}`;
@@ -132,6 +140,7 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   await expectHeading('Seven taps through a real outage.');
   await clickSel('.release.ready'); await settle(1500); await record('hold-oct12');
   await expectHeading('$40.00 stays on hold.');
+  await expectRecord('$0.00 captured, hold open');
   await checkLedger('oct12', 'Oct 12, 2020');
   await clickStop('Oct 22'); await settle(1200); await record('oct22');
   await expectHeading('$40.00 stays on hold.');
@@ -161,12 +170,15 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   }
   await clickStop('All days'); await settle(400);
   await clickSel('.release.ready'); await settle(900); await record('released-m1');
+  await expectRecord('$40.00 captured, hold open');
   await clickStop('Dec 19'); await settle(1200); await record('dec19-ready');
   await clickSel('.release.ready'); await settle(900); await record('closed');
+  await expectRecord('$100.00 captured, hold fully captured');
 
   await open(`${BASE}/`); await clickSel('.release.ready'); await settle(1200);
   await clickStop('Give the rest back'); await settle(200); await record('void-confirm');
   await clickStop('Return it'); await settle(900); await record('voided');
+  await expectRecord('$0.00 captured, rest of the hold voided');
   await open(`${BASE}/c/no-such-hold`); await record('gone');
 
   // A restart clears holds. The page must say so once, then stop asking.
@@ -205,6 +217,7 @@ console.log(`${results.length} steps, ${problems.length} problems`);
 console.log(`page load to network quiet: ${timings.length} loads, median ${timings[timings.length >> 1]} ms, slowest ${timings.at(-1)} ms`);
 const sample = ledgerFacts.find((f) => f.step.endsWith('nov19'));
 if (sample) console.log(`ledger at Nov 19: ${JSON.stringify(sample.facts)} ${JSON.stringify(sample.chips)}`);
+console.log(`PayPal record checks: ${recordLines.length}; ${recordLines.slice(0, 4).join(' | ')}`);
 for (const problem of problems) console.log(problem);
 ws.close();
 cleanUp();
