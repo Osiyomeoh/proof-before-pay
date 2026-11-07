@@ -12,7 +12,7 @@ process.loadEnvFile(new URL('../.env', import.meta.url));
 const fleet = loadMauiFleet();
 
 const chosen = new Map<string, Verdict>();
-for (const date of ['2020-10-08', '2020-10-12', '2020-10-23', '2020-11-18', '2020-11-19']) {
+for (const date of ['2020-10-08', '2020-10-12', '2020-10-22', '2020-10-23', '2020-10-26', '2020-11-18', '2020-11-19', '2020-12-19']) {
   chosen.set(date, judge(fleet, '01', date));
 }
 // Add the first real date for each hold reason not already covered.

@@ -36,7 +36,8 @@ export type TemplateReason =
   | 'NAMES_A_CAUSE'
   | 'WRONG_PEERS'
   | 'CALLS_IT_A_HOME'
-  | 'CONTRADICTS_HOLD';
+  | 'CONTRADICTS_HOLD'
+  | 'MISREADS_EVIDENCE';
 
 export type Explanation = {
   source: 'model' | 'recorded' | 'template';
@@ -53,14 +54,16 @@ The JSON evidence comes from a deterministic rule engine. Its verdict is final: 
 
 How to read the evidence:
 - "This inverter" is the unit being judged. Call it "this inverter", never by a number or ID.
-- The peers are the other inverters on the same roof. They see the same weather. Don't call them nearby systems or neighbours.
-- share_percent is this inverter's share of its peers' output compared with its own past share. 100 means its usual share.
+- The other inverters on the same roof see the same weather. Call them "the other inverters on the roof", not peers, nearby systems or neighbours.
+- share_of_usual_percent compares this inverter with the other inverters, against its own past: 100 means it kept up with them as it usually does, 0 means it made nothing while they produced. It is not the other inverters' output. Say "X% of its usual share".
 
 Rules:
 - Use only numbers that appear in the evidence, exactly as written. Don't calculate, round or add new ones.
+- Write dates exactly as the evidence writes them, for example "Oct 8, 2020".
 - Don't name or suggest a cause for low output. The evidence doesn't show one.
 - Don't call the site a home or a house, because the evidence doesn't say what kind of building it is.
 - explanation: at most three short sentences. Say what the verdict means for the payment, then the evidence that matters most.
+- On HOLD, the money stays held and only new production data can change that. Don't suggest that an answer, a fix or a review will release it.
 - installer_question: if the verdict is HOLD, one specific and polite question to send the installer, naming the dates concerned. If the verdict is RELEASE_READY, an empty string.`;
 
 const SCHEMA: Record<string, unknown> = {
@@ -75,9 +78,9 @@ const round = (value: number, places: number) => Number(value.toFixed(places));
 function reasonEvidence(reason: HoldReason): Record<string, unknown> {
   switch (reason.code) {
     case 'MEAN_TOO_LOW':
-      return { code: reason.code, average_share_percent: percent(reason.mean), lowest_allowed_percent: percent(reason.min) };
+      return { code: reason.code, average_share_of_usual_percent: percent(reason.mean), lowest_allowed_percent: percent(reason.min) };
     case 'DAY_BELOW_FLOOR':
-      return { code: reason.code, dates: reason.dates, lowest_allowed_percent: percent(reason.min) };
+      return { code: reason.code, dates: reason.dates.map(niceDate), lowest_allowed_percent: percent(reason.min) };
     case 'BASELINE_DEGRADED':
       return { code: reason.code, current_baseline_percent_of_earliest: percent(reason.drift), lowest_allowed_percent: percent(reason.min) };
     case 'FLEET_LOW_FOR_SUN':
@@ -92,22 +95,22 @@ export function buildEvidence(verdict: Verdict) {
   const floor = DEFAULT_RULES.dayFloor;
   return {
     verdict: verdict.status,
-    judged_date: verdict.date,
+    judged_date: niceDate(verdict.date),
     window_days: DEFAULT_RULES.windowDays,
     lowest_allowed_average_share_percent: percent(DEFAULT_RULES.minMean),
     lowest_allowed_day_share_percent: percent(floor),
     required_history_days: DEFAULT_RULES.minHistoryDays,
     history_days: verdict.historyDays,
-    average_share_percent: percent(verdict.mean),
+    average_share_of_usual_percent: percent(verdict.mean),
     days_with_zero_output: verdict.window.filter((day) => day.kwh === 0).length,
     days_below_lowest_allowed_share: verdict.window.filter((day) => day.ratio !== null && day.ratio < floor).length,
     hold_reasons: verdict.reasons.map(reasonEvidence),
     days: verdict.window.map((day) => ({
-      date: day.date,
+      date: niceDate(day.date),
       kwh: day.kwh === null ? null : round(day.kwh, 1),
-      peer_median_kwh: day.peerMedianKwh === null ? null : round(day.peerMedianKwh, 1),
+      other_inverters_median_kwh: day.peerMedianKwh === null ? null : round(day.peerMedianKwh, 1),
       measured_sun_kwh_per_m2: day.sun === null ? null : round(day.sun, 2),
-      share_percent: percent(day.ratio),
+      share_of_usual_percent: percent(day.ratio),
     })),
   };
 }
@@ -119,7 +122,9 @@ const toNumbers = (text: string) => (text.match(NUMBER) ?? []).map((part) => Num
 const CAUSE = /\b(fail(ed|ure|ing)?|fault(y|s)?|broken|defect(ive)?|malfunction\w*|damaged?|wiring|shading|soiling|dirty|tripped)\b/i;
 const WRONG_PEERS = /\b(nearby|neighbou?rs?|neighbou?ring)\b/i;
 const HOME = /\b(home|house)\b/i;
-const PAY_NOW = /(ready to (be )?release|safe to (pay|release)|go ahead|you (can|should|may) (now )?(release|pay))/i;
+const PAY_NOW = /(ready to (be )?release|safe to (pay|release)|go ahead|you (can|should|may) (now )?(release|pay)|resolved before|(once|after|until) [^.]{0,40}\b(resolved|explained|answered|fixed)\b)/i;
+// The page writes "Oct 8, 2020"; an ISO date or a bare share of "peers' output" misreads the evidence.
+const MISREAD = /\b\d{4}-\d{2}-\d{2}\b|\bpeers?'? output (was|of)\b|share of (its )?peers'? output\b/i;
 
 export function reviewAnswer(verdict: Verdict, evidenceJson: string, explanation: string, question: string): TemplateReason | null {
   const text = `${explanation} ${question}`;
@@ -131,6 +136,7 @@ export function reviewAnswer(verdict: Verdict, evidenceJson: string, explanation
   if (WRONG_PEERS.test(text)) return 'WRONG_PEERS';
   if (HOME.test(text)) return 'CALLS_IT_A_HOME';
   if (verdict.status === 'HOLD' && PAY_NOW.test(text)) return 'CONTRADICTS_HOLD';
+  if (MISREAD.test(text)) return 'MISREADS_EVIDENCE';
   return null;
 }
 

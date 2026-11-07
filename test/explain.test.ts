@@ -144,6 +144,11 @@ const REJECTED: Array<[TemplateReason, ModelReply | Error]> = [
   ['WRONG_PEERS', reply({ explanation: 'Nearby systems kept producing.', installer_question: 'Why?' })],
   ['CALLS_IT_A_HOME', reply({ explanation: 'Your home made no power.', installer_question: 'Why?' })],
   ['CONTRADICTS_HOLD', reply({ explanation: 'It is safe to pay.', installer_question: 'Why?' })],
+  // Seen in a real run on Oct 12: the hold read as something a reply could clear, and 31% read as the other inverters' output.
+  ['CONTRADICTS_HOLD', reply({ explanation: 'The output raises concerns that need to be resolved before funds are released.', installer_question: 'Why?' })],
+  ['CONTRADICTS_HOLD', reply({ explanation: 'The payment stays held until the drop is explained.', installer_question: 'Why?' })],
+  ['MISREADS_EVIDENCE', reply({ explanation: "The average share of peers' output was 31%.", installer_question: 'Why?' })],
+  ['MISREADS_EVIDENCE', reply({ explanation: 'On hold since 2020-10-12.', installer_question: 'Why?' })],
 ];
 
 for (const [reason, answer] of REJECTED) {
