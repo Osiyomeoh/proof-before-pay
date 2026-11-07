@@ -213,3 +213,25 @@ button { font: inherit; }
 .feed .src { font: 400 12px/1.7 "Plex Mono", monospace; color: var(--ink-3); }
 .feed .tx { overflow-wrap: anywhere; }
 .feed small { display: block; color: var(--ink-3); font-size: 12px; }
+
+/* Excuse check */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.excuse { margin-top: 16px; padding-top: 12px; border-top: 1px dashed var(--line); display: grid; gap: 8px; min-width: 0; }
+.excuse h3 { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.excuse .note { font-size: 13px; color: var(--ink-3); }
+.excuse .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.excuse .chip { font-size: 13px; min-height: 36px; padding: 6px 10px; }
+.excuse textarea { width: 100%; min-width: 0; font: inherit; font-size: 15px; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 8px; resize: vertical; }
+.excuse textarea:focus-visible { outline: 2px solid var(--ink-3); outline-offset: 1px; }
+.excuse > .btn { justify-self: start; }
+.excuse .said { font-size: 14px; color: var(--ink-2); overflow-wrap: anywhere; }
+.claims { display: grid; gap: 8px; }
+.claim { padding: 8px 10px; border-radius: 6px; border: 1px solid var(--line); display: grid; gap: 4px; font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
+.claim-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px; font-size: 13px; font-weight: 600; }
+.claim .kind { color: var(--ink-2); }
+.claim .quote { color: var(--ink-3); font-style: italic; }
+.claim.not_supported { background: var(--hold-bg); border-color: transparent; }
+.claim.not_supported .finding { color: var(--hold); }
+.claim.supported { background: var(--ready-bg); border-color: transparent; }
+.claim.supported .finding { color: var(--ready); }
+.claim.mixed .finding, .claim.cant_check .finding { color: var(--ink-3); }

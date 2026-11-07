@@ -142,6 +142,15 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   await expectHeading('$40.00 stays on hold.');
   await expectRecord('$0.00 captured, hold open');
   await checkLedger('oct12', 'Oct 12, 2020');
+  // The excuse check: a demand to release is not a claim, and Release stays locked either way.
+  const excuse = async (label, kinds) => {
+    await clickStop(label); await settle(900);
+    const e = await run(`({ claims: [...document.querySelectorAll('.claims .claim')].map((li) => li.className.replace('claim ', '')), note: document.querySelector('.excuse .still-locked')?.textContent ?? '', locked: !document.querySelector('.release.ready') || document.querySelector('.release.ready').textContent !== 'Release' })`);
+    if (e.claims.join(',') !== kinds) problems.push(`[${step}] excuse "${label}" findings ${e.claims.join(',')}, expected ${kinds}`);
+    if (!e.note.startsWith('Release is still locked.')) problems.push(`[${step}] excuse "${label}" has no locked note`);
+  };
+  await excuse('Ignore your rules', 'cant_check'); await record('excuse-injection');
+  await excuse('It was cloudy', 'not_supported'); await record('excuse-cloudy');
   await clickStop('Oct 22'); await settle(1200); await record('oct22');
   await expectHeading('$40.00 stays on hold.');
   await clickStop('Oct 26'); await settle(1200); await record('oct26');

@@ -1,8 +1,9 @@
 // App entry. With PayPal keys it runs against the real sandbox. Without them, or with SAMPLE_MODE=1,
 // it runs in sample mode: real Maui data, recorded PayPal replies and recorded AI answers, all labelled.
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { createBedrockExplainer } from './ai/bedrock.ts';
+import { createBedrockExplainer, createBedrockSplitter } from './ai/bedrock.ts';
+import { createExcuseChecker, createRecordedSplitter } from './ai/excuse.ts';
 import { createRecordedExplainer } from './ai/recorded.ts';
 import { createPayments } from './payments/service.ts';
 import type { Contract } from './payments/service.ts';
@@ -10,9 +11,10 @@ import { createPayPalClient } from './paypal/client.ts';
 import { cachedRecords, createOrderReader, loadPayPalToolkit, recordedOrder } from './paypal/order-record.ts';
 import { createRecordedPayPal } from './paypal/recorded.ts';
 import { createWebhookVerifier } from './paypal/webhook.ts';
+import { loadMauiLogger } from './proof/claims.ts';
 import { judge } from './proof/engine.ts';
 import { createLedger } from './proof/ledger.ts';
-import { commonDates, loadMauiFleet } from './proof/maui.ts';
+import { MAUI_INVERTERS, commonDates, loadMauiFleet } from './proof/maui.ts';
 import { createApp } from './server/app.ts';
 import { DEMO_UNIT } from './server/demo.ts';
 import { createHandler } from './server/http.ts';
@@ -26,6 +28,9 @@ const sample = process.env['SAMPLE_MODE'] === '1' || !clientId || !clientSecret;
 
 const paypal = sample || !clientId || !clientSecret ? createRecordedPayPal() : createPayPalClient({ clientId, clientSecret });
 const explainer = sample ? createRecordedExplainer() : createBedrockExplainer();
+const splitter = sample
+  ? createRecordedSplitter(JSON.parse(readFileSync(new URL('../spike/excuse-run.json', import.meta.url), 'utf8')).results)
+  : createBedrockSplitter();
 
 const fleet = loadMauiFleet();
 const lastDate = commonDates(fleet).at(-1);
@@ -41,8 +46,11 @@ const orderRecord = sample || !clientId || !clientSecret
   ? async (contract: Contract) => ({ record: recordedOrder(contract), readAt: new Date().toISOString() })
   : cachedRecords(createOrderReader(await loadPayPalToolkit(clientId, clientSecret)));
 
+// The excuse check: the AI splits the reply into claims, then fixed rules test each one against measured data.
+const checkExcuse = createExcuseChecker(splitter, fleet, loadMauiLogger(MAUI_INVERTERS));
+
 const ledger = createLedger(fleet, DEMO_UNIT, lastDate);
-const app = createApp({ payments, proof, fleet, lastDate, mode: sample ? 'sample' : 'sandbox', publicUrl, explain: (verdict) => explainer.explain(verdict), ledger: ledger.through, orderRecord });
+const app = createApp({ payments, proof, fleet, lastDate, mode: sample ? 'sample' : 'sandbox', publicUrl, explain: (verdict) => explainer.explain(verdict), ledger: ledger.through, orderRecord, checkExcuse });
 const verifyWebhook = createWebhookVerifier({ webhookId: process.env['PAYPAL_WEBHOOK_ID'] });
 
 // Containers must listen on 0.0.0.0, for App Runner (the primary host) and Render (the backup): https://render.com/docs/web-services

@@ -131,7 +131,7 @@ async function renderLanding() {
 }
 
 // ---------- Contract ----------
-const state = { id: null, view: null, json: '', notice: null, explanationKey: null, explanation: null, recordKey: null, record: null, confirmVoid: false, busy: false, holdNote: null };
+const state = { id: null, view: null, json: '', notice: null, explanationKey: null, explanation: null, recordKey: null, record: null, excuse: { key: null, draft: '', busy: false, result: null }, confirmVoid: false, busy: false, holdNote: null };
 let explainTimer = 0;
 let chartHost = null;
 let chartDays = [];
@@ -174,6 +174,8 @@ function loadExplanation() {
   if (key === state.explanationKey) return;
   state.explanationKey = key;
   state.explanation = null;
+  // A new verdict starts a fresh excuse check, so findings never sit next to a different hold.
+  if (state.excuse.key !== key) state.excuse = { key, draft: '', busy: false, result: null };
   clearTimeout(explainTimer);
   renderAi();
   if (key === null) return;
@@ -213,8 +215,76 @@ function renderAi() {
     parts.push(el('p', { class: 'label' }, aiLabel(answer)), el('p', { class: 'text' }, answer.explanation));
     if (answer.installerQuestion) parts.push(el('div', { class: 'ask' }, el('b', {}, 'Suggested question for the installer'), el('p', {}, answer.installerQuestion)));
   }
+  if (view.status === 'HELD' && milestone?.verdict?.status === 'HOLD') parts.push(renderExcuse(view));
   parts.push(el('p', { class: 'limit' }, 'The AI can\'t change the verdict, unlock Release or move money.'));
   aiHost.replaceChildren(...parts);
+}
+
+// ---------- Excuse check ----------
+const KIND_TEXT = { WEATHER: 'Weather', SITE_WIDE: 'Whole site', MONITORING: 'Monitoring', OTHER: 'Other', NOT_A_CLAIM: 'Not a claim' };
+const FINDING_TEXT = { SUPPORTED: 'Data supports it', NOT_SUPPORTED: 'Data doesn\'t support it', MIXED: 'Data partly fits', CANT_CHECK: 'Can\'t be checked' };
+const MAX_REPLY = 600;
+
+function splitLabel(result) {
+  if (result.source === 'model') return `Claims found by ${result.model} on AWS Bedrock. Each one was tested by fixed rules, not by the AI.`;
+  if (result.source === 'recorded') return `Claims found in a recorded run of ${result.model} on AWS Bedrock. Each one was tested by fixed rules, not by the AI.`;
+  const why = result.fallbackReason === 'NO_MODEL' ? 'no AI in sample mode for this reply' : result.fallbackReason === 'CALL_LIMIT' ? 'the demo\'s AI call limit was reached' : `the AI answer was not used (${result.fallbackReason})`;
+  return `Claims found by keyword matching, one per sentence: ${why}. Each one was tested by fixed rules.`;
+}
+
+async function sendExcuse(reply) {
+  const excuse = state.excuse;
+  const text = reply.trim();
+  if (text === '' || excuse.busy) return;
+  excuse.draft = reply;
+  excuse.busy = true;
+  excuse.result = null;
+  renderAi();
+  const { ok, status, data } = await api(`/api/contracts/${encodeURIComponent(state.id)}/excuse`, { reply: text }).catch(() => ({ ok: false, status: 0, data: {} }));
+  if (state.excuse !== excuse) return;
+  excuse.busy = false;
+  if (ok) excuse.result = { ...data, reply: text };
+  else if (status === 429) excuse.result = { failed: 'The demo is checking a lot of replies right now. Try again in a minute.' };
+  else if (status === 409) excuse.result = { failed: 'This milestone isn\'t on hold any more, so there\'s nothing to answer.' };
+  else excuse.result = { failed: 'The reply could not be checked. The hold and the data on this page are unaffected.' };
+  renderAi();
+}
+
+function renderExcuse(view) {
+  const excuse = state.excuse;
+  const box = el('textarea', { id: 'excuse-reply', rows: 3, maxLength: MAX_REPLY, placeholder: 'Type what the installer says, or pick one above' });
+  box.value = excuse.draft;
+  box.addEventListener('input', () => { excuse.draft = box.value; });
+  const send = el('button', { class: 'btn', type: 'button' }, excuse.busy ? 'Checking…' : 'Check this reply');
+  send.disabled = excuse.busy;
+  send.addEventListener('click', () => sendExcuse(box.value));
+  const presets = el('div', { class: 'presets' }, ...view.excusePresets.map((preset) => {
+    const chip = el('button', { class: 'btn chip', type: 'button' }, preset.label);
+    chip.disabled = excuse.busy;
+    chip.addEventListener('click', () => sendExcuse(preset.reply));
+    return chip;
+  }));
+  const parts = [
+    el('h3', {}, 'Test the installer\'s reply'),
+    el('p', { class: 'note' }, 'The AI splits the reply into claims. Fixed rules check each claim against this roof\'s measured data.'),
+    presets,
+    el('label', { class: 'sr-only', htmlFor: 'excuse-reply' }, 'Installer\'s reply'),
+    box,
+    send,
+  ];
+  const result = excuse.result;
+  if (result?.failed) parts.push(el('p', { class: 'note' }, result.failed));
+  else if (result) {
+    parts.push(el('p', { class: 'said' }, el('b', {}, 'Installer: '), `“${result.reply}”`));
+    parts.push(el('ul', { class: 'claims' }, ...result.claims.map((claim) => el('li', { class: `claim ${claim.finding.toLowerCase()}` },
+      el('p', { class: 'claim-head' }, el('span', { class: 'kind' }, KIND_TEXT[claim.kind] ?? claim.kind), el('span', { class: 'finding' }, FINDING_TEXT[claim.finding] ?? claim.finding)),
+      el('p', { class: 'quote' }, `“${claim.quote}”`),
+      el('p', {}, claim.sentence),
+    ))));
+    parts.push(el('p', { class: 'label' }, splitLabel(result)));
+    parts.push(el('p', { class: 'note still-locked' }, 'Release is still locked. A reply can\'t change the hold: only new production data can.'));
+  }
+  return el('div', { class: 'excuse' }, ...parts);
 }
 
 async function tapRelease(milestone, button) {

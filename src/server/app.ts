@@ -13,12 +13,24 @@ import type { TimedRecord } from '../paypal/order-record.ts';
 import { DEMO_DESCRIPTION, DEMO_MILESTONES, DEMO_UNIT, buildView, currentIndex, opensOn, seenDate } from './demo.ts';
 import { readJson, send } from './http.ts';
 
+// Kept here rather than imported, so the server doesn't load the AI module. test/excuse.test.ts checks they match.
+export const MAX_REPLY_CHARS = 600;
+
 export type AppExplanation = {
   source: 'model' | 'recorded' | 'template';
   explanation: string;
   installerQuestion: string | null;
   model: string | null;
   templateReason: string | null;
+};
+
+// The installer's reply, split into claims and each one tested against measured data. Read-only:
+// the answer carries findings, never a verdict, and the hold is taken from the engine as before.
+export type ExcuseAnswer = {
+  source: 'model' | 'recorded' | 'keywords';
+  model: string | null;
+  fallbackReason: string | null;
+  claims: ReadonlyArray<{ kind: string; quote: string; finding: string; sentence: string; dates: readonly string[] }>;
 };
 
 export type AppDeps = {
@@ -32,6 +44,8 @@ export type AppDeps = {
   ledger: (through: string) => Promise<readonly LedgerRow[]>;
   // PayPal's own record of the order, read with the Agent Toolkit's get_order tool. Read-only.
   orderRecord: (contract: Contract) => Promise<TimedRecord>;
+  checkExcuse: (verdict: Verdict, reply: string) => Promise<ExcuseAnswer>;
+  maxExcusesPerMinute?: number;
   now?: () => number;
   maxHoldsPerMinute?: number;
 };
@@ -78,6 +92,8 @@ export function createApp(deps: AppDeps) {
   const maxHolds = deps.maxHoldsPerMinute ?? 20;
   const page = readFileSync(new URL('index.html', PUBLIC_DIR), 'utf8');
   let holdsInMinute: { minute: number; count: number } = { minute: 0, count: 0 };
+  const maxExcuses = deps.maxExcusesPerMinute ?? 20;
+  let excusesInMinute: { minute: number; count: number } = { minute: 0, count: 0 };
 
   function servePage(res: ServerResponse) {
     const nonce = randomBytes(16).toString('base64url');
@@ -96,6 +112,14 @@ export function createApp(deps: AppDeps) {
     if (holdsInMinute.minute !== minute) holdsInMinute = { minute, count: 0 };
     holdsInMinute.count += 1;
     return holdsInMinute.count <= maxHolds;
+  }
+
+  // Each reply may cost a model call, so the excuse check has its own ceiling.
+  function underExcuseLimit(): boolean {
+    const minute = Math.floor(now() / 60_000);
+    if (excusesInMinute.minute !== minute) excusesInMinute = { minute, count: 0 };
+    excusesInMinute.count += 1;
+    return excusesInMinute.count <= maxExcuses;
   }
 
   return async function route(req: IncomingMessage, res: ServerResponse, path: string): Promise<boolean> {
@@ -182,6 +206,36 @@ export function createApp(deps: AppDeps) {
       }
       const verdict = view.milestones.find((m) => m.isCurrent)?.verdict ?? null;
       send(res, 200, verdict === null ? { explanation: null } : await explain(verdict));
+      return true;
+    }
+
+    const excuseMatch = path.match(/^\/api\/contracts\/([^/]+)\/excuse$/);
+    if (req.method === 'POST' && excuseMatch?.[1] !== undefined) {
+      const body = await readJson(req);
+      if (body === null) {
+        send(res, 415, { error: 'JSON_REQUIRED' });
+        return true;
+      }
+      const contract = payments.get(excuseMatch[1]);
+      if (contract === null) {
+        send(res, 404, { error: 'NOT_FOUND' });
+        return true;
+      }
+      const reply = body['reply'];
+      if (typeof reply !== 'string' || reply.trim() === '' || reply.length > MAX_REPLY_CHARS) {
+        send(res, 400, { error: 'BAD_REPLY', maxChars: MAX_REPLY_CHARS });
+        return true;
+      }
+      const verdict = buildView(contract, proof, fleet, mode, lastDate).milestones.find((m) => m.isCurrent)?.verdict ?? null;
+      if (verdict === null || verdict.status !== 'HOLD') {
+        send(res, 409, { error: 'NOT_ON_HOLD' });
+        return true;
+      }
+      if (!underExcuseLimit()) {
+        send(res, 429, { error: 'TOO_MANY_REPLIES' });
+        return true;
+      }
+      send(res, 200, { date: verdict.date, ...(await deps.checkExcuse(verdict, reply.trim())) });
       return true;
     }
 

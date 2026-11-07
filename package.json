@@ -15,6 +15,7 @@
     "eval": "node --disable-warning=ExperimentalWarning scripts/eval-verdict.ts",
     "sandbox": "node --disable-warning=ExperimentalWarning scripts/sandbox-run.ts",
     "explain": "node --disable-warning=ExperimentalWarning scripts/explain-run.ts",
+    "excuse": "node --disable-warning=ExperimentalWarning scripts/excuse-run.ts",
     "deploy": "node scripts/deploy-apprunner.mjs"
   },
   "devDependencies": {
