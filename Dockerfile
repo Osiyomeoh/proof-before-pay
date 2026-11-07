@@ -8,6 +8,7 @@ COPY src ./src
 COPY public ./public
 COPY data ./data
 COPY spike/explain-run.json ./spike/explain-run.json
+COPY spike/excuse-run.json ./spike/excuse-run.json
 USER node
 EXPOSE 8080
 CMD ["node", "--disable-warning=ExperimentalWarning", "src/main.ts"]
