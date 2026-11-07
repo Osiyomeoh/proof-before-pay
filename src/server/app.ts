@@ -46,6 +46,8 @@ export type AppDeps = {
   orderRecord: (contract: Contract) => Promise<TimedRecord>;
   checkExcuse: (verdict: Verdict, reply: string) => Promise<ExcuseAnswer>;
   maxExcusesPerMinute?: number;
+  // A read-only what-if: forged totals against the logger. It never touches a hold or a payment.
+  forgeCheck: (verdict: Verdict) => unknown;
   now?: () => number;
   maxHoldsPerMinute?: number;
 };
@@ -206,6 +208,22 @@ export function createApp(deps: AppDeps) {
       }
       const verdict = view.milestones.find((m) => m.isCurrent)?.verdict ?? null;
       send(res, 200, verdict === null ? { explanation: null } : await explain(verdict));
+      return true;
+    }
+
+    const forgeMatch = path.match(/^\/api\/contracts\/([^/]+)\/forge$/);
+    if (req.method === 'GET' && forgeMatch?.[1] !== undefined) {
+      const contract = payments.get(forgeMatch[1]);
+      if (contract === null) {
+        send(res, 404, { error: 'NOT_FOUND' });
+        return true;
+      }
+      const verdict = buildView(contract, proof, fleet, mode, lastDate).milestones.find((m) => m.isCurrent)?.verdict ?? null;
+      if (verdict === null || verdict.status !== 'HOLD') {
+        send(res, 409, { error: 'NOT_ON_HOLD' });
+        return true;
+      }
+      send(res, 200, deps.forgeCheck(verdict));
       return true;
     }
 

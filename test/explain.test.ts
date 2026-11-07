@@ -66,7 +66,7 @@ test('the AI module cannot reach any code that moves money', () => {
 });
 
 test('the verdict and the money rules cannot depend on the AI', () => {
-  for (const entry of ['proof/engine.ts', 'proof/claims.ts', 'payments/service.ts', 'server/http.ts']) {
+  for (const entry of ['proof/engine.ts', 'proof/claims.ts', 'proof/forgery.ts', 'payments/service.ts', 'server/http.ts']) {
     assert.deepEqual(reachable(src(entry)).filter((file) => file.startsWith('ai/')), [], entry);
   }
 });

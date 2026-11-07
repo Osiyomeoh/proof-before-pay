@@ -175,7 +175,7 @@ function loadExplanation() {
   state.explanationKey = key;
   state.explanation = null;
   // A new verdict starts a fresh excuse check, so findings never sit next to a different hold.
-  if (state.excuse.key !== key) state.excuse = { key, draft: '', busy: false, result: null };
+  if (state.excuse.key !== key) { state.excuse = { key, draft: '', busy: false, result: null }; state.forge = { busy: false, result: null }; }
   clearTimeout(explainTimer);
   renderAi();
   if (key === null) return;
@@ -215,7 +215,7 @@ function renderAi() {
     parts.push(el('p', { class: 'label' }, aiLabel(answer)), el('p', { class: 'text' }, answer.explanation));
     if (answer.installerQuestion) parts.push(el('div', { class: 'ask' }, el('b', {}, 'Suggested question for the installer'), el('p', {}, answer.installerQuestion)));
   }
-  if (view.status === 'HELD' && milestone?.verdict?.status === 'HOLD') parts.push(renderExcuse(view));
+  if (view.status === 'HELD' && milestone?.verdict?.status === 'HOLD') parts.push(renderExcuse(view), renderForge());
   parts.push(el('p', { class: 'limit' }, 'The AI can\'t change the verdict, unlock Release or move money.'));
   aiHost.replaceChildren(...parts);
 }
@@ -230,6 +230,44 @@ function splitLabel(result) {
   if (result.source === 'recorded') return `Claims found in a recorded run of ${result.model} on AWS Bedrock. Each one was tested by fixed rules, not by the AI.`;
   const why = result.fallbackReason === 'NO_MODEL' ? 'no AI in sample mode for this reply' : result.fallbackReason === 'CALL_LIMIT' ? 'the demo\'s AI call limit was reached' : `the AI answer was not used (${result.fallbackReason})`;
   return `Claims found by keyword matching, one per sentence: ${why}. Each one was tested by fixed rules.`;
+}
+
+async function tryForge() {
+  const forge = state.forge;
+  if (forge.busy) return;
+  forge.busy = true;
+  forge.result = null;
+  renderAi();
+  const res = await fetch(`/api/contracts/${encodeURIComponent(state.id)}/forge`).catch(() => null);
+  const data = res?.ok ? await res.json().catch(() => null) : null;
+  if (state.forge !== forge) return;
+  forge.busy = false;
+  forge.result = data ?? { failed: true };
+  renderAi();
+}
+
+function renderForge() {
+  const forge = state.forge ?? (state.forge = { busy: false, result: null });
+  const button = el('button', { class: 'btn', type: 'button' }, forge.busy ? 'Forging…' : 'Forge these days');
+  button.disabled = forge.busy;
+  button.addEventListener('click', tryForge);
+  const parts = [
+    el('h3', {}, 'Try to fake it'),
+    el('p', { class: 'note' }, 'What if someone rewrote the low daily totals to look normal? This runs on a copy. The hold on this page doesn\'t change.'),
+    button,
+  ];
+  const result = forge.result;
+  if (result?.failed) parts.push(el('p', { class: 'note' }, 'The test could not run. The hold and the data on this page are unaffected.'));
+  else if (result && result.days.length === 0) parts.push(el('p', { class: 'note' }, 'No day in this window is low enough to forge.'));
+  else if (result) {
+    parts.push(el('p', {}, result.forgedStatus === 'RELEASE_READY' ? 'On forged totals alone, the check would pass.' : 'Even on forged totals, the check would still hold.'));
+    parts.push(el('ul', { class: 'claims' }, ...result.days.map((day) => el('li', { class: `claim ${day.flagged ? 'not_supported' : 'cant_check'}` },
+      el('p', { class: 'claim-head' }, el('span', { class: 'kind' }, shortDate(day.date)), el('span', { class: 'finding' }, day.flagged ? 'Caught' : 'Not caught')),
+      el('p', {}, `${day.realKwh.toFixed(1)} kWh rewritten to ${day.forgedKwh.toFixed(1)} kWh. Highest DC voltage logged: ${day.dcMaxV === null ? 'no reading' : `${day.dcMaxV.toFixed(1)} V`}${result.usualDcPeakV === null ? '' : `, against a usual ${result.usualDcPeakV.toFixed(1)} V`}.`),
+    ))));
+    parts.push(el('p', { class: 'note' }, 'The logger catches a forged day when its DC voltage was far too low to make that power. It can\'t see a small real output made larger, and someone who rewrote every raw reading would pass. This makes faking harder, not impossible.'));
+  }
+  return el('div', { class: 'excuse forge' }, ...parts);
 }
 
 async function sendExcuse(reply) {

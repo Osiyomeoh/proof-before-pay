@@ -151,6 +151,15 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   };
   await excuse('Ignore your rules', 'cant_check'); await record('excuse-injection');
   await excuse('It was cloudy', 'not_supported'); await record('excuse-cloudy');
+
+  // Forging the low days: the what-if says the check would pass, the logger catches the dead days, and the real hold stays.
+  await run(`[...document.querySelectorAll('.forge button')].find((b) => b.textContent === 'Forge these days').click()`);
+  await new Promise((r) => setTimeout(r, 800));
+  const forged = await run(`({ findings: [...document.querySelectorAll('.forge .claim .finding')].map((f) => f.textContent), text: document.querySelector('.forge')?.textContent ?? '', locked: !document.querySelector('.release.ready') || document.querySelector('.release.ready').textContent !== 'Release' })`);
+  if (forged.findings.join(',') !== 'Not caught,Caught,Caught,Caught,Caught') problems.push(`[${step}] forge findings ${forged.findings.join(',')}`);
+  if (!forged.text.includes('the check would pass')) problems.push(`[${step}] forge does not say the engine was fooled`);
+  if (!forged.locked) problems.push(`[${step}] forge unlocked Release`);
+  await record('forge');
   await clickStop('Oct 22'); await settle(1200); await record('oct22');
   await expectHeading('$40.00 stays on hold.');
   await clickStop('Oct 26'); await settle(1200); await record('oct26');

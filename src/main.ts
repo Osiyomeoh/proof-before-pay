@@ -13,6 +13,8 @@ import { createRecordedPayPal } from './paypal/recorded.ts';
 import { createWebhookVerifier } from './paypal/webhook.ts';
 import { loadMauiLogger } from './proof/claims.ts';
 import { judge } from './proof/engine.ts';
+import type { Verdict } from './proof/engine.ts';
+import { forgeryTest } from './proof/forgery.ts';
 import { createLedger } from './proof/ledger.ts';
 import { MAUI_INVERTERS, commonDates, loadMauiFleet } from './proof/maui.ts';
 import { createApp } from './server/app.ts';
@@ -47,10 +49,12 @@ const orderRecord = sample || !clientId || !clientSecret
   : cachedRecords(createOrderReader(await loadPayPalToolkit(clientId, clientSecret)));
 
 // The excuse check: the AI splits the reply into claims, then fixed rules test each one against measured data.
-const checkExcuse = createExcuseChecker(splitter, fleet, loadMauiLogger(MAUI_INVERTERS));
+const logger = loadMauiLogger(MAUI_INVERTERS);
+const checkExcuse = createExcuseChecker(splitter, fleet, logger);
+const forgeCheck = (verdict: Verdict) => forgeryTest(verdict, fleet, logger);
 
 const ledger = createLedger(fleet, DEMO_UNIT, lastDate);
-const app = createApp({ payments, proof, fleet, lastDate, mode: sample ? 'sample' : 'sandbox', publicUrl, explain: (verdict) => explainer.explain(verdict), ledger: ledger.through, orderRecord, checkExcuse });
+const app = createApp({ payments, proof, fleet, lastDate, mode: sample ? 'sample' : 'sandbox', publicUrl, explain: (verdict) => explainer.explain(verdict), ledger: ledger.through, orderRecord, checkExcuse, forgeCheck });
 const verifyWebhook = createWebhookVerifier({ webhookId: process.env['PAYPAL_WEBHOOK_ID'] });
 
 // Containers must listen on 0.0.0.0, for App Runner (the primary host) and Render (the backup): https://render.com/docs/web-services

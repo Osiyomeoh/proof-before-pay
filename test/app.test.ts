@@ -18,6 +18,7 @@ import { recordedOrder } from '../src/paypal/order-record.ts';
 import type { OrderRecord, RecordCheck } from '../src/paypal/order-record.ts';
 import { createRecordedPayPal } from '../src/paypal/recorded.ts';
 import { judge } from '../src/proof/engine.ts';
+import { forgeryTest } from '../src/proof/forgery.ts';
 import { createLedger } from '../src/proof/ledger.ts';
 import type { LedgerRow } from '../src/proof/ledger.ts';
 import { MAUI_INVERTERS, commonDates, loadMauiFleet } from '../src/proof/maui.ts';
@@ -38,7 +39,7 @@ const checkExcuse = createExcuseChecker(createRecordedSplitter(excuseRun.results
 function startServer(paypal: PayPalClient, options: Partial<AppDeps> = {}) {
   const payments = createPayments({ paypal, proof });
   const explainer = createRecordedExplainer();
-  const app = createApp({ payments, proof, fleet, lastDate, mode: 'sample', publicUrl: 'http://localhost', explain: (v) => explainer.explain(v), ledger: ledger.through, orderRecord: async (c) => ({ record: recordedOrder(c), readAt: '2026-11-06T00:00:00.000Z' }), checkExcuse, ...options });
+  const app = createApp({ payments, proof, fleet, lastDate, mode: 'sample', publicUrl: 'http://localhost', explain: (v) => explainer.explain(v), ledger: ledger.through, orderRecord: async (c) => ({ record: recordedOrder(c), readAt: '2026-11-06T00:00:00.000Z' }), checkExcuse, forgeCheck: (v) => forgeryTest(v, fleet, loadMauiLogger(MAUI_INVERTERS)), ...options });
   const server = createServer(createHandler({ payments, verifyWebhook: async () => ({ ok: false, reason: 'NOT_CONFIGURED' }), app }));
   return server;
 }
@@ -568,4 +569,22 @@ test('the excuse route refuses bad input, unknown holds, a milestone not on hold
   assert.equal((await send(`/api/contracts/${hold}/excuse`, { reply: 'cloudy' })).status, 200);
   assert.equal((await send(`/api/contracts/${hold}/excuse`, { reply: 'cloudy' })).status, 429);
   limited.close();
+});
+
+test('forging the Oct 12 hold fools the engine on a copy, the logger catches the dead days, and the real hold is untouched', async () => {
+  const id = await newHold();
+  const before = captures.length;
+  const ahead = await view(id);
+  const res = await fetch(`${base}/api/contracts/${id}/forge`);
+  assert.equal(res.status, 200);
+  const body = (await res.json()) as { forgedStatus: string; flagged: number; days: Array<{ date: string; realKwh: number; flagged: boolean }> };
+  assert.equal(body.forgedStatus, 'RELEASE_READY');
+  assert.deepEqual(body.days.map((d) => [d.date, d.realKwh, d.flagged]), [['2020-10-08', 2.699, false], ['2020-10-09', 0, true], ['2020-10-10', 0, true], ['2020-10-11', 0, true], ['2020-10-12', 0, true]]);
+  assert.equal(body.flagged, 4);
+  assert.deepEqual((await view(id)).milestones, ahead.milestones);
+  assert.equal((await tap(id, 'm1')).status, 409);
+  assert.equal(captures.length, before);
+  assert.equal((await fetch(`${base}/api/contracts/nope/forge`)).status, 404);
+  await replay(id, '2020-11-19');
+  assert.equal((await fetch(`${base}/api/contracts/${id}/forge`)).status, 409);
 });
