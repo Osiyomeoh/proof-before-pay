@@ -26,6 +26,8 @@ for off in range(-24,25):
     if len(xs)>1000:
         c=st.correlation(xs,ys)
         if not best or c>best[1]: best=(off,c)
+# An optional third argument pins the offset: it belongs to the site's clock, and a tie can pick one a day apart.
+if len(sys.argv)>3: best=next((o,c) for o,c in [(int(sys.argv[3]),st.correlation(*zip(*[(v,ghi[k+dt.timedelta(hours=int(sys.argv[3]))]) for k,v in inv.items() if k+dt.timedelta(hours=int(sys.argv[3])) in ghi])))])
 off=best[0]; print('offset h',off,'corr',round(best[1],3))
 # daily totals (local inverter day)
 E=collections.defaultdict(float);H=collections.defaultdict(float);cov=collections.Counter()

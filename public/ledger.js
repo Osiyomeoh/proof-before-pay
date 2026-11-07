@@ -95,6 +95,7 @@ export function createLedger() {
   const section = el('section', { class: 'card ledger', ariaLabel: 'Production ledger' },
     heading,
     el('p', { class: 'ledger-note' }, 'Two rules on the same readings. Ours needs 7 straight days: an average of at least 70% of the usual share, with no day under 30%. The other pays after one day at 70%. Shaded rows are the last 7 days. This table can\'t release money. It shows where the rules differ, not which was right, because the dataset has no fault log.'),
+    el('p', { class: 'ledger-note' }, 'Across 9 inverters on this roof and 13,257 judged days: when ours paid, a day under 30% followed within 14 days 7.2% of the time. For the one-good-day rule it was 8.7%. The cost: ours held 641 days the other rule paid. Most of the gap comes from one inverter, and with no fault log this isn\'t accuracy.'),
     tools, summary, status, host,
   );
 

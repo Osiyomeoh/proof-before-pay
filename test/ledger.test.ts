@@ -72,3 +72,15 @@ test('the wording on the page matches the rule values', () => {
   assert.equal(DEFAULT_RULES.windowDays, 7);
   assert.match(page, new RegExp(`at least ${DEFAULT_RULES.minMean * 100}% of the usual share, with no day under ${DEFAULT_RULES.dayFloor * 100}%`));
 });
+
+test('the roof-wide figure on the page matches the saved fleet run', () => {
+  const run = JSON.parse(readFileSync(new URL('../spike/eval-fleet.json', import.meta.url), 'utf8')) as {
+    inverters: string[];
+    total: { days: number; ours: { pays: number; relapses: number }; oneGoodDay: { pays: number; relapses: number }; onlyOneGoodDay: { pays: number } };
+  };
+  const page = readFileSync(new URL('../public/ledger.js', import.meta.url), 'utf8');
+  const pct = (t: { pays: number; relapses: number }) => `${((100 * t.relapses) / t.pays).toFixed(1)}%`;
+  assert.ok(page.includes(`Across ${run.inverters.length} inverters on this roof and ${run.total.days.toLocaleString('en-US')} judged days:`));
+  assert.ok(page.includes(`within 14 days ${pct(run.total.ours)} of the time. For the one-good-day rule it was ${pct(run.total.oneGoodDay)}.`));
+  assert.ok(page.includes(`ours held ${run.total.onlyOneGoodDay.pays} days`));
+});

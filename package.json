@@ -13,6 +13,7 @@
     "test": "node --disable-warning=ExperimentalWarning --test \"test/**/*.test.ts\"",
     "typecheck": "tsc --noEmit",
     "eval": "node --disable-warning=ExperimentalWarning scripts/eval-verdict.ts",
+    "eval:fleet": "node --disable-warning=ExperimentalWarning scripts/eval-fleet.ts",
     "sandbox": "node --disable-warning=ExperimentalWarning scripts/sandbox-run.ts",
     "explain": "node --disable-warning=ExperimentalWarning scripts/explain-run.ts",
     "excuse": "node --disable-warning=ExperimentalWarning scripts/excuse-run.ts",

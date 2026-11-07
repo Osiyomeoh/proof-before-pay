@@ -1,0 +1,184 @@
+{
+  "ranAt": "2026-11-07T04:05:00.598Z",
+  "inverters": [
+    "01",
+    "02",
+    "03",
+    "04",
+    "05",
+    "07",
+    "08",
+    "09",
+    "10"
+  ],
+  "leftOut": {
+    "11": "repeats inv04: all five values match in 236,874 of 236,906 shared minutes",
+    "06": "AC kWh column equals AC voltage / 1000 in every row"
+  },
+  "sharedDays": 1565,
+  "firstDate": "2019-06-21",
+  "lastDate": "2023-11-07",
+  "lookaheadDays": 14,
+  "dayFloor": 0.3,
+  "total": {
+    "ours": {
+      "pays": 12169,
+      "relapses": 875
+    },
+    "oneGoodDay": {
+      "pays": 12682,
+      "relapses": 1099
+    },
+    "onlyOneGoodDay": {
+      "pays": 641,
+      "relapses": 234
+    },
+    "days": 13257
+  },
+  "perInverter": [
+    {
+      "id": "01",
+      "days": 1473,
+      "ours": {
+        "pays": 1425,
+        "relapses": 14
+      },
+      "oneGoodDay": {
+        "pays": 1445,
+        "relapses": 16
+      },
+      "onlyOneGoodDay": {
+        "pays": 21,
+        "relapses": 2
+      }
+    },
+    {
+      "id": "02",
+      "days": 1473,
+      "ours": {
+        "pays": 1428,
+        "relapses": 96
+      },
+      "oneGoodDay": {
+        "pays": 1454,
+        "relapses": 92
+      },
+      "onlyOneGoodDay": {
+        "pays": 37,
+        "relapses": 1
+      }
+    },
+    {
+      "id": "03",
+      "days": 1473,
+      "ours": {
+        "pays": 1388,
+        "relapses": 189
+      },
+      "oneGoodDay": {
+        "pays": 1440,
+        "relapses": 189
+      },
+      "onlyOneGoodDay": {
+        "pays": 67,
+        "relapses": 4
+      }
+    },
+    {
+      "id": "04",
+      "days": 1473,
+      "ours": {
+        "pays": 1192,
+        "relapses": 0
+      },
+      "oneGoodDay": {
+        "pays": 1158,
+        "relapses": 0
+      },
+      "onlyOneGoodDay": {
+        "pays": 53,
+        "relapses": 0
+      }
+    },
+    {
+      "id": "05",
+      "days": 1473,
+      "ours": {
+        "pays": 1005,
+        "relapses": 494
+      },
+      "oneGoodDay": {
+        "pays": 1395,
+        "relapses": 720
+      },
+      "onlyOneGoodDay": {
+        "pays": 390,
+        "relapses": 226
+      }
+    },
+    {
+      "id": "07",
+      "days": 1473,
+      "ours": {
+        "pays": 1459,
+        "relapses": 0
+      },
+      "oneGoodDay": {
+        "pays": 1473,
+        "relapses": 0
+      },
+      "onlyOneGoodDay": {
+        "pays": 14,
+        "relapses": 0
+      }
+    },
+    {
+      "id": "08",
+      "days": 1473,
+      "ours": {
+        "pays": 1452,
+        "relapses": 40
+      },
+      "oneGoodDay": {
+        "pays": 1469,
+        "relapses": 39
+      },
+      "onlyOneGoodDay": {
+        "pays": 18,
+        "relapses": 0
+      }
+    },
+    {
+      "id": "09",
+      "days": 1473,
+      "ours": {
+        "pays": 1361,
+        "relapses": 42
+      },
+      "oneGoodDay": {
+        "pays": 1375,
+        "relapses": 43
+      },
+      "onlyOneGoodDay": {
+        "pays": 27,
+        "relapses": 1
+      }
+    },
+    {
+      "id": "10",
+      "days": 1473,
+      "ours": {
+        "pays": 1459,
+        "relapses": 0
+      },
+      "oneGoodDay": {
+        "pays": 1473,
+        "relapses": 0
+      },
+      "onlyOneGoodDay": {
+        "pays": 14,
+        "relapses": 0
+      }
+    }
+  ]
+}

@@ -164,6 +164,7 @@ button { font: inherit; }
 /* Production ledger */
 .ledger { margin-bottom: 16px; }
 .ledger-note { color: var(--ink-2); font-size: 14px; max-width: 76ch; }
+.ledger-note + .ledger-note { margin-top: 8px; }
 .ledger-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; align-items: center; }
 .ledger-tools .chip { font-size: 14px; }
 .ledger-tools .chip[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: var(--card); }
