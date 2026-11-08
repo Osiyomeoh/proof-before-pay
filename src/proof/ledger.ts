@@ -50,6 +50,43 @@ function rowFor(fleet: Fleet, unitId: string, date: string, rules: Rules): Ledge
   };
 }
 
+export type RaceDay = { date: string; share: number | null; belowFloor: boolean; noReading: boolean; ours: Verdict['status']; simple: 'WAITING' | 'PAID' };
+
+export type Race = {
+  from: string;
+  through: string;
+  end: string;
+  amountCents: number;
+  simplePaidOn: string | null;
+  oursReadyOn: string | null;
+  underFloorSincePaid: number;
+  noReadingSincePaid: number;
+  days: RaceDay[];
+};
+
+// One milestone's money under both rules, day by day from its first judged day through the day being judged.
+// The simple rule pays on the first day it says PAYS, and a capture can't be taken back, so every later day
+// only shows what the inverter made after the money had gone. `end` is where the drawing stops, never data.
+export function rulesRace(rows: readonly LedgerRow[], from: string, through: string, end: string, amountCents: number): Race {
+  let simplePaidOn: string | null = null;
+  let oursReadyOn: string | null = null;
+  let underFloorSincePaid = 0;
+  let noReadingSincePaid = 0;
+  const days: RaceDay[] = [];
+  for (const row of rows) {
+    if (row.date < from || row.date > through) continue;
+    const noReading = row.kwh === null;
+    if (simplePaidOn !== null) {
+      if (row.belowFloor) underFloorSincePaid += 1;
+      if (noReading) noReadingSincePaid += 1;
+    }
+    if (simplePaidOn === null && row.oneGoodDay === 'PAYS') simplePaidOn = row.date;
+    if (oursReadyOn === null && row.status === 'RELEASE_READY') oursReadyOn = row.date;
+    days.push({ date: row.date, share: row.share, belowFloor: row.belowFloor, noReading, ours: row.status, simple: simplePaidOn === null ? 'WAITING' : 'PAID' });
+  }
+  return { from, through, end: end > through ? end : through, amountCents, simplePaidOn, oursReadyOn, underFloorSincePaid, noReadingSincePaid, days };
+}
+
 // Built once, because a verdict can't change once its day has passed. Calendar days with no reading stay in as rows,
 // so a gap shows up as a gap. It gives way to other requests as it goes, because this runs on a small shared CPU.
 export function createLedger(fleet: Fleet, unitId: string, lastDate: string, rules: Rules = DEFAULT_RULES) {

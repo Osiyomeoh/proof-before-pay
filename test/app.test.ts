@@ -20,7 +20,7 @@ import { createRecordedPayPal } from '../src/paypal/recorded.ts';
 import { judge } from '../src/proof/engine.ts';
 import { forgeryTest } from '../src/proof/forgery.ts';
 import { createLedger } from '../src/proof/ledger.ts';
-import type { LedgerRow } from '../src/proof/ledger.ts';
+import type { LedgerRow, Race } from '../src/proof/ledger.ts';
 import { MAUI_INVERTERS, commonDates, loadMauiFleet } from '../src/proof/maui.ts';
 import { createApp } from '../src/server/app.ts';
 import type { AppDeps } from '../src/server/app.ts';
@@ -123,6 +123,39 @@ test('the landing page claim holds for inverter 01: one good day passes, then th
   const after = commonDates(fleet).filter((date) => date >= '2020-10-26' && date <= '2020-11-12');
   assert.equal(after.length, 16);
   for (const date of after) assert.equal(judge(fleet, '01', date).window.at(-1)?.kwh, 0, date);
+});
+
+test('the view carries both pay rules for the first milestone, up to the day judged and no further', async () => {
+  type WithRace = ContractView & { race: Race | null };
+  const id = await newHold();
+  const opening = (await view(id)) as WithRace;
+  assert.deepEqual(opening.race?.days.map((d) => d.date), ['2020-10-12']);
+  assert.equal(opening.race?.end, '2020-11-19');
+  assert.equal(opening.race?.simplePaidOn, null);
+
+  await replay(id, '2020-10-26');
+  const oct26 = (await view(id)) as WithRace;
+  assert.equal(oct26.race?.simplePaidOn, '2020-10-23');
+  assert.equal(oct26.race?.days.at(-1)?.date, '2020-10-26');
+  assert.equal(oct26.race?.underFloorSincePaid, 1);
+  assert.equal(oct26.race?.oursReadyOn, null);
+
+  await replay(id, '2020-11-19');
+  assert.equal((await release(id, 'm1')).body.outcome, 'CAPTURED');
+  // Still shown on the day it was released, so the reader sees how it ended.
+  const released = (await view(id)) as WithRace;
+  assert.equal(released.race?.through, '2020-11-19');
+  assert.equal(released.race?.oursReadyOn, '2020-11-19');
+  assert.equal(released.race?.days.length, 39);
+
+  await replay(id, '2020-12-19');
+  assert.equal(((await view(id)) as WithRace).race, null);
+});
+
+test('a neighbour contract has no pay-rule race', async () => {
+  const res = await post('/api/contracts', { kind: 'neighbour' });
+  const { id } = (await res.json()) as { id: string };
+  assert.equal('race' in (await view(id)), false);
 });
 
 test('the clock only moves forward, and only to dates in the data', async () => {

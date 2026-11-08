@@ -6,12 +6,13 @@ import { acceptsBrotli, brotli } from './compress.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { addDays, isValidDate } from '../proof/engine.ts';
 import type { Fleet, Verdict } from '../proof/engine.ts';
-import type { LedgerRow } from '../proof/ledger.ts';
+import { rulesRace } from '../proof/ledger.ts';
+import type { LedgerRow, Race } from '../proof/ledger.ts';
 import type { Contract, Payments, Proof } from '../payments/service.ts';
 import { isMetered } from '../payments/service.ts';
 import { checkRecord } from '../paypal/order-record.ts';
 import type { TimedRecord } from '../paypal/order-record.ts';
-import { DEMO_DESCRIPTION, DEMO_MILESTONES, DEMO_UNIT, buildView, currentIndex, opensOn, seenDate } from './demo.ts';
+import { DEMO_DESCRIPTION, DEMO_MILESTONES, DEMO_START, DEMO_UNIT, RACE_END, buildView, currentIndex, opensOn, seenDate } from './demo.ts';
 import { readJson, send } from './http.ts';
 import { NEIGHBOUR_DESCRIPTION, NEIGHBOUR_MILESTONES, buildNeighbourView } from './neighbour.ts';
 
@@ -112,6 +113,15 @@ export function createApp(deps: AppDeps) {
   // The verdict on the milestone being judged. A metered contract has none.
   const currentVerdict = (contract: Contract): Verdict | null =>
     isMetered(contract) ? null : buildView(contract, proof, fleet, mode, lastDate).milestones.find((m) => m.isCurrent)?.verdict ?? null;
+
+  // The first milestone under both pay rules: while it's the one being judged, and on the day it's released.
+  // It reads the same ledger rows as the table, so it can't see past the day being judged either.
+  async function raceFor(contract: Contract): Promise<Race | null> {
+    const first = contract.milestones[0];
+    if (contract.status !== 'HELD' || first === undefined) return null;
+    if (currentIndex(contract) !== 0 && seenDate(contract) !== first.proofDate) return null;
+    return rulesRace(await deps.ledger(first.proofDate), DEMO_START, first.proofDate, RACE_END, first.amountCents);
+  }
 
   function redirect(res: ServerResponse, location: string) {
     res.writeHead(303, { Location: location });
@@ -225,7 +235,7 @@ export function createApp(deps: AppDeps) {
       }
       const view = buildView(contract, proof, fleet, mode, lastDate);
       if (viewMatch[2] === 'view') {
-        send(res, 200, view);
+        send(res, 200, { ...view, race: await raceFor(contract) });
         return true;
       }
       const verdict = view.milestones.find((m) => m.isCurrent)?.verdict ?? null;

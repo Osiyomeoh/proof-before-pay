@@ -16,6 +16,8 @@ The hosted demo runs in sample mode: real production data, with recorded PayPal 
 4. Move to **Oct 22**. Output returns, and the check still holds. By **Oct 26** it's back to zero.
 5. Move to **Nov 19**. The check passes, and you tap Release to capture $40 of the $100 hold.
 
+**Or watch it.** After starting a hold, press **Play**. The page steps through the month one recorded day at a time and draws both rules on the same $40.00: the one-good-day rule pays on Oct 23, the inverter is back at zero by Oct 26, and this check holds until Nov 19. Play stops there, and Release is yours to tap.
+
 **A second contract on the same roof.** At the bottom of the landing page, **Hold $120.00 for four weeks of power** lets a neighbour buy inverter 01's output at a demo price of $0.10 a kWh. Each week is billed from that week's readings once its last day is in, and a person taps to capture it: $22.47, $8.61, then the outage week closes at $0.00 with no PayPal call, then $9.74. After the last week, the unused $79.18 is voided back to the buyer.
 
 ## Who decides what
@@ -34,7 +36,7 @@ AG Grid powers the production ledger, which compares the two pay rules day by da
 
 ## What's measured
 
-- **The outage:** inverter 01 on a Maui roof logged 0.0 kWh on Oct 9–21, 2020 while the other inverters kept producing. Output returned Oct 22–25, then went back to zero for 18 days.
+- **The outage:** inverter 01 on a Maui roof logged 0.0 kWh on Oct 9–21, 2020 while the other inverters kept producing. Output returned Oct 22–25, then logged 0.0 kWh on 16 of the next 18 days (Oct 26–Nov 12). Nov 5–6 have no daily total.
 - **Across the roof:** over 9 inverters and 13,257 judged days, days our rule paid were followed within 14 days by a day under 30% of usual 7.2% of the time, against 8.7% for the one-good-day rule. Ours held 641 days the other rule paid. Most of the gap comes from one inverter (`npm run eval:fleet`, results in `spike/eval-fleet.json`).
 - **Forgery test:** rewriting inverter 01's 40 outage days to normal totals fools the engine. The logger's DC voltage caught 29 of the 40, every day the inverter really made 0 kWh, and missed 11 days with real but smaller output. It raised 0 false alarms across 6,791 real inverter-days (`node spike/forge-test.ts`).
 - **Neighbour contract:** inverter 01's four weeks from Sep 28 to Oct 25, 2020, each day read to the tenth of a kWh and rounded down, bill $22.47, $8.61, $0.00 and $9.74. The 300 kWh weekly cap is above all 38 full weeks it made in 2020 before then (best 289.6 kWh). Over HTTP, $40.82 is captured in three captures, none final, and the $79.18 left is voided (`test/neighbour.test.ts`).

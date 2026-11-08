@@ -24,6 +24,9 @@ export const STORY_STOPS = [
   { date: '2020-11-19', label: 'A healthy week' },
 ] as const;
 
+// The two-rule comparison is drawn out to the last story stop, so the reader sees how far the month goes.
+export const RACE_END = STORY_STOPS[STORY_STOPS.length - 1]!.date;
+
 export const DEMO_SOURCE = { unit: `Inverter ${DEMO_UNIT}`, site: 'Maui Ocean Center, NREL PVDAQ system 2105: a real 110 kW commercial roof' };
 
 const SETTLED: readonly MilestoneStatus[] = ['PENDING', 'CAPTURED', 'REFUNDED', 'REVERSED', 'NOTHING_DUE'];

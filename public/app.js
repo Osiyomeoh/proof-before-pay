@@ -14,6 +14,8 @@ function icon(kind, size = 16) {
     check: 'M4 10.5l4 4 8-9',
     clock: 'M10 5v5l3 2M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16z',
     arrow: 'M4 10h12M11 5l5 5-5 5',
+    play: 'M7 4.5l8 5.5-8 5.5z',
+    pause: 'M7 5v10M13 5v10',
   };
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 20 20');
@@ -84,7 +86,7 @@ async function renderJudge() {
   const { button, notice } = holdStarter('Start a fresh hold');
   const steps = [
     ['Start a fresh hold', mode === 'sample' ? '$100.00 goes on hold for two milestones. You land on Oct 12, 2020, with the inverter at zero and Release locked.' : 'Approve $100.00 on PayPal with the sandbox buyer login in the README. You land on Oct 12, 2020, with the inverter at zero and Release locked.'],
-    ['Tap Oct 22', 'Output returns, and Release stays locked. One good day isn\'t enough.'],
+    ['Tap Oct 22', 'Output returns, and Release stays locked. One good day isn\'t enough. Or press Play to watch the whole month run, one recorded day at a time.'],
     ['Tap Oct 26', 'Back to zero. A rule that pays after one good day would already have paid, on Oct 23 and 24.'],
     ['Tap Nov 19, then Release $40.00', 'The last 7 days pass the check, so Release unlocks. Nothing is captured until you tap it.'],
     ['Tap Dec 19, then Release $60.00', 'The second milestone is checked 30 days later. Releasing it closes the hold.'],
@@ -106,7 +108,7 @@ async function renderJudge() {
 const STORY = [
   ['Oct 9', 'hold', 'Inverter 01 drops to 0 kWh. The other inverters on the roof keep producing.'],
   ['Oct 22', 'hold', 'Output comes back for four days. One good day isn\'t enough here.'],
-  ['Oct 26', 'hold', 'Back to zero for 18 more days. A pay-after-one-good-day rule paid on Oct 23.'],
+  ['Oct 26', 'hold', 'Back to zero for 16 more recorded days. A pay-after-one-good-day rule paid on Oct 23.'],
   ['Nov 19', 'ready', 'A full healthy week. The check passes, and a person can release $40.00.'],
 ];
 
@@ -123,7 +125,7 @@ async function renderLanding() {
     el('div', { class: 'landing-copy' },
       el('p', { class: 'kicker' }, 'Solar milestone payments on PayPal'),
       el('h1', {}, 'Your solar installer gets paid when the system proves it\'s producing.'),
-      el('p', { class: 'lede' }, 'Replay a real 2020 outage on a real roof. A rule that pays after one good day would have paid during a four-day recovery, just before 18 more days at zero. This one keeps the money on hold.'),
+      el('p', { class: 'lede' }, 'Replay a real 2020 outage on a real roof. A rule that pays after one good day would have paid during a four-day recovery, just before 16 more recorded days at zero. This one keeps the money on hold.'),
       el('div', { class: 'start' }, button, el('small', {}, mode === 'sample' ? 'Sample mode: no login and no money. PayPal replies are recorded.' : 'You\'ll approve the hold with a PayPal sandbox buyer. Test money only.')),
       notice,
       el('p', { class: 'guide-link' }, el('a', { href: '/judge' }, 'Judging this? Follow the guided test'), icon('arrow', 14)),
@@ -196,8 +198,11 @@ function renderPeople() {
 }
 
 // ---------- Contract ----------
-const state = { tab: 'ai', id: null, view: null, json: '', notice: null, explanationKey: null, explanation: null, recordKey: null, record: null, excuse: { key: null, draft: '', busy: false, result: null }, confirmVoid: false, busy: false, holdNote: null };
+const state = { tab: 'ai', id: null, view: null, json: '', notice: null, explanationKey: null, explanation: null, recordKey: null, record: null, excuse: { key: null, draft: '', busy: false, result: null }, confirmVoid: false, busy: false, holdNote: null, playing: false };
 let explainTimer = 0;
+// Play waits at least this long between recorded days, so a fast connection doesn't blur the month.
+// Oct 12 to Nov 19 is 38 steps, so about 15 s on a local server. A distant host is slower, because each step is two requests.
+const PLAY_STEP_MS = 400;
 let chartHost = null;
 let chartDays = [];
 
@@ -219,6 +224,8 @@ async function refresh() {
   state.view = data;
   setMode(data.mode);
   render();
+  // While Play runs, the AI answer and PayPal's record wait for the last day, so a 38-day replay doesn't make 38 calls each.
+  if (state.playing) return;
   loadExplanation();
   loadRecord();
 }
@@ -270,6 +277,8 @@ function renderExplanation(view, milestone) {
   const parts = [];
   if (view.status !== 'HELD') {
     parts.push(el('p', { class: 'text' }, view.status === 'AWAITING_APPROVAL' ? 'The AI explains each result once the hold is placed.' : 'There\'s nothing left to explain: this contract has finished.'));
+  } else if (state.playing) {
+    parts.push(el('p', { class: 'text' }, 'The AI explains the day Play stops on. It isn\'t asked about every day on the way.'));
   } else if (milestone?.verdict === null || milestone === null) {
     parts.push(el('p', { class: 'text' }, `There's no result to explain yet. The AI explains this milestone once it opens on ${milestone?.opensOn ? fullDate(milestone.opensOn) : 'its date'}.`));
   } else if (state.explanation === null) {
@@ -288,7 +297,8 @@ function renderAi() {
   if (aiHost === null || state.view === null) return;
   const view = state.view;
   const milestone = currentMilestone(view);
-  const onHold = view.status === 'HELD' && milestone?.verdict?.status === 'HOLD';
+  // While Play runs, the reply and forge tabs are hidden: their results belong to the day Play started from.
+  const onHold = !state.playing && view.status === 'HELD' && milestone?.verdict?.status === 'HOLD';
   const tab = onHold ? state.tab : 'ai';
   const head = el('div', { class: 'push-head' },
     el('h2', {}, onHold ? 'Push on the verdict' : 'What the AI says'),
@@ -473,6 +483,45 @@ async function moveTo(date) {
   await refresh();
 }
 
+// Presses Next day for the reader, through the same server clock, until the check passes or the recorded days run out.
+// It stops on any refusal, and when the reader presses Pause. Each run has a number, so a quick Pause and Play can't leave two loops going.
+let playRun = 0;
+async function play() {
+  if (state.playing || state.busy) return;
+  const run = ++playRun;
+  state.playing = true;
+  render();
+  while (state.playing && run === playRun) {
+    const view = state.view;
+    const milestone = view === null ? null : currentMilestone(view);
+    if (view === null || view.status !== 'HELD' || milestone === null || view.clock.waitingUntil !== null) break;
+    if (view.clock.date >= view.clock.lastDate || milestone.verdict?.status === 'RELEASE_READY') break;
+    const started = Date.now();
+    await moveTo(addDays(view.clock.date, 1));
+    if (state.view === null || state.view.clock.date === view.clock.date || (state.notice !== null && !state.notice.good)) break;
+    const rest = PLAY_STEP_MS - (Date.now() - started);
+    if (rest > 0) await new Promise((resolve) => setTimeout(resolve, rest));
+  }
+  if (run !== playRun) return;
+  state.playing = false;
+  if (state.view === null) return;
+  render();
+  loadExplanation();
+  loadRecord();
+}
+
+function renderPlay(view) {
+  if (state.playing) {
+    const pause = el('button', { class: 'btn play on', type: 'button', on: { click: () => { state.playing = false; render(); } } }, icon('pause', 14), 'Pause');
+    pause.setAttribute('aria-pressed', 'true');
+    return pause;
+  }
+  const done = view.clock.date >= view.clock.lastDate || currentMilestone(view)?.verdict?.status === 'RELEASE_READY';
+  const button = el('button', { class: 'btn play', type: 'button', disabled: state.busy || done, on: { click: play } }, icon('play', 14), 'Play');
+  button.setAttribute('aria-pressed', 'false');
+  return button;
+}
+
 async function voidRest() {
   const tap = await api(`/api/contracts/${encodeURIComponent(state.id)}/void/tap`, {}).catch(() => null);
   const result = tap?.data?.token ? await api(`/api/contracts/${encodeURIComponent(state.id)}/void`, { tap: tap.data.token }).catch(() => null) : null;
@@ -584,21 +633,119 @@ function renderClock(view) {
   // A billing week's clock stops at its last day, until that week is settled.
   const weekOver = view.kind === 'neighbour' && live?.due === true;
   const controls = [];
+  const player = view.kind === 'install' && canMove && clock.waitingUntil === null ? renderPlay(view) : null;
   if (canMove) {
     if (clock.waitingUntil === null) {
-      controls.push(el('button', { class: 'btn', type: 'button', disabled: clock.date >= clock.lastDate || weekOver || state.busy, on: { click: () => moveTo(addDays(clock.date, 1)) } }, 'Next day'));
+      controls.push(el('button', { class: 'btn', type: 'button', disabled: clock.date >= clock.lastDate || weekOver || state.busy || state.playing, on: { click: () => moveTo(addDays(clock.date, 1)) } }, 'Next day'));
     }
     for (const stop of clock.stops) {
-      controls.push(el('button', { class: 'btn stop', type: 'button', disabled: state.busy, on: { click: () => moveTo(stop.date) } }, shortDate(stop.date), el('small', {}, stop.label)));
+      controls.push(el('button', { class: 'btn stop', type: 'button', disabled: state.busy || state.playing, on: { click: () => moveTo(stop.date) } }, shortDate(stop.date), el('small', {}, stop.label)));
     }
   }
+  const cap = weekOver ? `${live.title} is over. Settle it to start the next week.`
+    : state.playing ? 'Playing one recorded day at a time. Pause any time.'
+      : canMove ? 'Newest recorded day shown. One way only, like real time.' : 'Last recorded day used.';
   return el('section', { class: 'rail', ariaLabel: 'Replay' },
     el('div', { class: 'now' },
       el('span', { class: 'kicker' }, canMove ? 'Replaying real readings' : 'Replay finished'),
       el('b', { class: 'mono' }, clock.label),
-      el('span', { class: 'cap' }, weekOver ? `${live.title} is over. Settle it to start the next week.` : canMove ? 'Newest recorded day shown. One way only, like real time.' : 'Last recorded day used.'),
+      el('span', { class: 'cap' }, cap),
     ),
-    controls.length > 0 ? el('div', { class: 'controls' }, el('span', { class: 'jump' }, 'Jump to'), ...controls) : null,
+    controls.length > 0 ? el('div', { class: 'controls' }, player, el('span', { class: 'jump' }, 'Jump to'), ...controls) : null,
+  );
+}
+
+// ---------- Two rules, one month ----------
+// The first milestone's money under the one-good-day rule and under this check, one cell per recorded day.
+// The server sends only days already seen. The rest of the month is drawn empty, so its length shows without its data.
+const dayCount = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const isReleased = (milestone) => milestone.status === 'CAPTURED' || milestone.status === 'PENDING';
+
+function raceWords(view, race) {
+  const amount = usd(race.amountCents);
+  const unit = view.source.unit;
+  const first = view.milestones[0];
+  const after = `${plural(race.underFloorSincePaid, 'day')} under 30% of usual${race.noReadingSincePaid > 0 ? ` and ${race.noReadingSincePaid} with no reading` : ''}`;
+  const looking = race.simplePaidOn === null ? 'The one-good-day rule hadn\'t paid either.' : `The one-good-day rule had paid on ${shortDate(race.simplePaidOn)}. After that, ${unit} had ${after}.`;
+  if (isReleased(first)) return [`A person released the ${amount} on ${shortDate(race.through)}.`, looking];
+  if (first.verdict?.status === 'RELEASE_READY') return [`This check passed on ${shortDate(race.oursReadyOn ?? race.through)}. A person can release the ${amount}.`, looking];
+  if (race.simplePaidOn !== null) {
+    const since = race.underFloorSincePaid + race.noReadingSincePaid === 0
+      ? `It paid on the first day ${unit} reached 70% of its usual share. This check needs a 7-day average of 70%, with no day under 30%.`
+      : `Since then, ${unit} has had ${after}.`;
+    return [`The one-good-day rule paid the ${amount} on ${shortDate(race.simplePaidOn)}. This check is still holding it.`, since];
+  }
+  return [`Both rules are still holding the ${amount}.`, `The one-good-day rule pays on the first day ${unit} reaches 70% of its usual share.${state.playing ? '' : ' Press Play to watch the month.'}`];
+}
+
+function renderRace(view) {
+  const race = view.race;
+  if (!race) return null;
+  const amount = usd(race.amountCents);
+  const first = view.milestones[0];
+  const released = isReleased(first);
+  const ready = first.verdict?.status === 'RELEASE_READY';
+  const seen = new Map(race.days.map((day) => [day.date, day]));
+  const dates = Array.from({ length: dayCount(race.from, race.end) + 1 }, (_, k) => addDays(race.from, k));
+  const tip = (day, text) => `${fullDate(day.date)}: ${text}`;
+  const reading = (day) => (day.noReading ? 'no reading' : day.share === null ? 'no share for this day' : `${Math.round(day.share * 100)}% of usual`);
+
+  const track = (kind, cellFor) => {
+    const list = el('ol', { class: `race-track ${kind}`, ariaHidden: 'true' }, ...dates.map((date) => {
+      const day = seen.get(date);
+      const cell = day === undefined ? el('li', { class: 'future' }) : cellFor(day);
+      if (date === race.through) cell.classList.add('is-new');
+      return cell;
+    }));
+    list.style.setProperty('--days', String(dates.length));
+    return list;
+  };
+  const SCALE = 1.3;
+  const bars = track('bars', (day) => {
+    const kind = day.noReading || day.share === null ? 'none' : day.belowFloor ? 'low' : day.share < 0.7 ? 'mid' : 'ok';
+    const bar = el('li', { class: kind, title: tip(day, reading(day)) });
+    if (day.share !== null) bar.style.setProperty('--h', String(Math.min(Math.max(day.share, 0), SCALE) / SCALE));
+    return bar;
+  });
+  const simple = track('lane', (day) => {
+    if (day.simple === 'WAITING') return el('li', { class: 'held', title: tip(day, `holding ${amount}`) });
+    if (day.date === race.simplePaidOn) return el('li', { class: 'paid', title: tip(day, `paid ${amount}`) });
+    return el('li', { class: `gone${day.noReading ? ' none' : day.belowFloor ? ' low' : ''}`, title: tip(day, `already paid, inverter at ${reading(day)}`) });
+  });
+  const ours = track('lane', (day) => (day.ours === 'RELEASE_READY'
+    ? el('li', { class: released && day.date === race.through ? 'ready released' : 'ready', title: tip(day, 'check passes') })
+    : el('li', { class: 'held', title: tip(day, `holding ${amount}`) })));
+
+  const label = (name, status, kind) => el('div', { class: 'race-label' }, el('b', {}, name), status === null ? null : el('small', { class: kind }, status));
+  const row = (head, list) => el('div', { class: 'race-row' }, head, list);
+  const axis = el('div', { class: 'race-axis', ariaHidden: 'true' }, el('span', { class: 'a-from' }, shortDate(race.from)), el('span', { class: 'a-end' }, shortDate(race.end)));
+  axis.style.setProperty('--days', String(dates.length));
+  if (race.simplePaidOn !== null) {
+    const mark = el('span', { class: 'a-paid' }, `${shortDate(race.simplePaidOn)} · paid`);
+    mark.style.gridColumn = `${dayCount(race.from, race.simplePaidOn) + 1} / -1`;
+    axis.append(mark);
+  }
+  const [headline, sub] = raceWords(view, race);
+  const key = (kind, text) => el('span', {}, el('i', { class: `k-${kind}` }), text);
+
+  return el('section', { class: 'card race', ariaLabel: `${amount} under two pay rules` },
+    el('p', { class: 'kicker' }, `Same ${amount}, two rules`),
+    el('h2', {}, headline),
+    el('p', { class: 'race-sub' }, sub),
+    el('div', { class: 'race-rows' },
+      row(label(view.source.unit, 'share of usual', 'quiet'), bars),
+      row(label('Pays after one good day', race.simplePaidOn === null ? 'holding' : `paid ${shortDate(race.simplePaidOn)}`, race.simplePaidOn === null ? 'held' : 'paid'), simple),
+      row(label('This check', released ? 'released' : ready ? 'passed' : 'holding', released || ready ? 'ready' : 'held'), ours),
+      row(el('div', { class: 'race-label' }), axis),
+    ),
+    el('p', { class: 'race-legend' },
+      key('held', `Holding ${amount}`),
+      key('paid', 'Paid out'),
+      key('gone-low', 'Already paid, inverter under 30%'),
+      key('gone-none', 'Already paid, no reading'),
+      key('ready', 'Check passes'),
+    ),
   );
 }
 
@@ -947,14 +1094,15 @@ function render() {
     app.replaceChildren(boardHost, ledger.section);
   }
   aiHost = el('section', { class: 'card push' });
-  boardHost.replaceChildren(renderClock(view), el('div', { class: 'stage' },
+  boardHost.replaceChildren(...[renderClock(view), renderRace(view), el('div', { class: 'stage' },
     el('div', { class: 'main-col' }, renderVerdict(view), renderEvidence(view), aiHost),
     el('div', { class: 'side-col' }, renderMoney(view)),
-  ));
+  )].filter(Boolean));
   renderAi();
   renderRecord();
   drawChart(chartHost, chartDays, chartWindow, chartLabel);
-  ledger.show(view.id, view.clock.date, view.source.unit);
+  // The table catches up when Play stops, rather than rebuilding its grid every recorded day.
+  if (!state.playing) ledger.show(view.id, view.clock.date, view.source.unit);
 }
 
 let lastWidth = 0;

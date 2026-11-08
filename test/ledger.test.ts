@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { DEFAULT_RULES, judge } from '../src/proof/engine.ts';
 import type { Fleet } from '../src/proof/engine.ts';
-import { createLedger, oneGoodDay } from '../src/proof/ledger.ts';
+import { createLedger, oneGoodDay, rulesRace } from '../src/proof/ledger.ts';
 import { commonDates, loadMauiFleet } from '../src/proof/maui.ts';
 
 const fleet = loadMauiFleet();
@@ -33,6 +33,30 @@ test('the rows cover every calendar day, in order, so a gap in the data stays vi
     assert.equal(on(date).status, 'HOLD');
     assert.equal(on(date).oneGoodDay, 'NO_CALL');
   }
+});
+
+test('both pay rules on the same $40.00: one good day pays on Oct 23, this check on Nov 19', () => {
+  const race = rulesRace(rows, '2020-10-12', '2020-11-19', '2020-11-19', 4000);
+  assert.equal(race.simplePaidOn, '2020-10-23');
+  assert.equal(race.oursReadyOn, '2020-11-19');
+  assert.equal(race.days.length, 39);
+  // After the simple rule paid: 16 days at zero, and Nov 5 and 6 with no daily total.
+  assert.equal(race.underFloorSincePaid, 16);
+  assert.equal(race.noReadingSincePaid, 2);
+  assert.deepEqual(race.days.filter((d) => d.noReading).map((d) => d.date), ['2020-11-05', '2020-11-06']);
+  for (const day of race.days.filter((d) => d.date > '2020-10-23' && d.belowFloor)) assert.equal(on(day.date).kwh, 0, day.date);
+  // A capture can't be taken back, so the simple rule stays paid on every later day.
+  for (const day of race.days) assert.equal(day.simple, day.date >= '2020-10-23' ? 'PAID' : 'WAITING', day.date);
+});
+
+test('the race stops at the day being judged, and only its drawing reaches further', () => {
+  const race = rulesRace(rows, '2020-10-12', '2020-10-22', '2020-11-19', 4000);
+  assert.equal(race.days.at(-1)?.date, '2020-10-22');
+  assert.equal(race.days.length, 11);
+  assert.equal(race.simplePaidOn, null);
+  assert.equal(race.end, '2020-11-19');
+  // An end before the day judged is moved up to it.
+  assert.equal(rulesRace(rows, '2020-10-12', '2020-11-25', '2020-11-19', 4000).end, '2020-11-25');
 });
 
 test('through a date, no later row is returned', async () => {

@@ -47,10 +47,11 @@ const inFlight = new Map();
 let lastActivity = Date.now();
 let expected404 = false;
 let viewRequests = 0;
+let explainRequests = 0;
 ws.addEventListener('message', ({ data }) => {
   const m = JSON.parse(data);
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); return; }
-  if (m.method === 'Network.requestWillBeSent') { inFlight.set(m.params.requestId, m.params.request.url); lastActivity = Date.now(); if (m.params.request.url.endsWith('/view')) viewRequests += 1; }
+  if (m.method === 'Network.requestWillBeSent') { inFlight.set(m.params.requestId, m.params.request.url); lastActivity = Date.now(); if (m.params.request.url.endsWith('/view')) viewRequests += 1; if (m.params.request.url.endsWith('/explanation')) explainRequests += 1; }
   if (m.method === 'Fetch.requestPaused') send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 404, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from('{"error":"NOT_FOUND"}').toString('base64') });
   if (m.method === 'Network.loadingFinished' || m.method === 'Network.loadingFailed') { inFlight.delete(m.params.requestId); lastActivity = Date.now(); }
   if (m.method === 'Runtime.exceptionThrown') problems.push(`[${step}] exception: ${m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text}`);
@@ -92,6 +93,24 @@ async function shot(name, full = true) {
 }
 const clickStop = (text) => run(`(() => { const b = [...document.querySelectorAll('button')].find((x) => x.textContent.startsWith(${JSON.stringify(text)})); if (!b) throw new Error('no button ' + ${JSON.stringify(text)}); b.click(); })()`);
 const clickSel = (sel) => run(`document.querySelector(${JSON.stringify(sel)}).click()`);
+// Polls the page until a condition holds. Play runs on its own timer, so the network never goes quiet for settle().
+async function waitFor(expression, ms, what) {
+  const started = Date.now();
+  while (!(await run(expression))) {
+    if (Date.now() - started > ms) { problems.push(`[${step}] ${what} after ${ms / 1000} s`); return false; }
+    await wait(150);
+  }
+  return true;
+}
+// The two-rules band: its headline and line under it, and how its cells are filled.
+const readRace = `(() => { const r = document.querySelector('.race'); if (!r) return null; const cells = (sel) => r.querySelectorAll(sel).length; return { h: r.querySelector('h2').textContent, sub: r.querySelector('.race-sub').textContent, bars: cells('.race-track.bars li:not(.future)'), future: cells('.race-track.bars li.future'), paid: cells('.race-track.lane li.paid'), ready: cells('.race-track.lane li.ready') }; })()`;
+async function expectRace(h, sub) {
+  const race = await run(readRace);
+  if (race?.h !== h) problems.push(`[${step}] race headline "${race?.h}", expected "${h}"`);
+  if (sub !== undefined && race?.sub !== sub) problems.push(`[${step}] race line "${race?.sub}", expected "${sub}"`);
+  return race;
+}
+const AFTER_PAID = 'The one-good-day rule had paid on Oct 23. After that, Inverter 01 had 16 days under 30% of usual and 2 with no reading.';
 
 // Reads the ledger's displayed rows and summary, and fails the run on anything impossible.
 const readLedger = `(() => {
@@ -141,6 +160,7 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   await clickSel('.release.ready'); await settle(1500); await record('hold-oct12');
   await expectHeading('$40.00 stays on hold.');
   await expectRecord('$0.00 captured, hold open');
+  await expectRace('Both rules are still holding the $40.00.');
   await checkLedger('oct12', 'Oct 12, 2020');
   // The excuse check: a demand to release is not a claim, and Release stays locked either way.
   const excuse = async (label, kinds) => {
@@ -167,8 +187,10 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   await expectHeading('$40.00 stays on hold.');
   await clickStop('Oct 26'); await settle(1200); await record('oct26');
   await expectHeading('$40.00 stays on hold.');
+  await expectRace('The one-good-day rule paid the $40.00 on Oct 23. This check is still holding it.', 'Since then, Inverter 01 has had 1 day under 30% of usual.');
   await clickStop('Nov 19'); await settle(1200); await record('nov19-ready');
   await expectHeading('$40.00 can be released.');
+  await expectRace('This check passed on Nov 19. A person can release the $40.00.', AFTER_PAID);
   const all = await checkLedger('nov19', 'Nov 19, 2020');
 
   // Narrow to the days the rules disagree, and check the summary follows the filter.
@@ -192,7 +214,9 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   await clickStop('All days'); await settle(400);
   await clickSel('.release.ready'); await settle(900); await record('released-m1');
   await expectRecord('$40.00 captured, hold open');
+  await expectRace('A person released the $40.00 on Nov 19.', AFTER_PAID);
   await clickStop('Dec 19'); await settle(1200); await record('dec19-ready');
+  if (await run(`!!document.querySelector('.race')`)) problems.push(`[${step}] race still shown on the second milestone`);
   await clickSel('.release.ready'); await settle(900); await record('closed');
   await expectRecord('$100.00 captured, hold fully captured');
 
@@ -201,6 +225,26 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   await clickStop('Return it'); await settle(900); await record('voided');
   await expectRecord('$0.00 captured, rest of the hold voided');
   await open(`${BASE}/c/no-such-hold`); await record('gone');
+
+  // Play: the month runs one recorded day at a time through the same clock. The simple rule pays on Oct 23, this check
+  // waits for Nov 19, and the AI is asked once, about the day Play stops on. The page has one theme, so light is enough.
+  if (scheme === 'light') {
+    await open(`${BASE}/`); await clickSel('.release.ready'); await settle(1200);
+    step = `${tag} play`;
+    const asked = explainRequests;
+    await clickStop('Play');
+    if (await waitFor(`document.querySelector('.race h2')?.textContent.includes('paid the $40.00 on Oct 23') && document.querySelectorAll('.race-track.bars li:not(.future)').length >= 16`, 120_000, 'the one-good-day rule never paid')) {
+      await record('race-paid');
+      if (!(await run(`!!document.querySelector('.btn.play.on') && [...document.querySelectorAll('.rail .stop')].every((b) => b.disabled)`))) problems.push(`[${step}] Pause missing, or a stop open, while playing`);
+    }
+    await waitFor(`document.querySelector('h1')?.textContent === '$40.00 can be released.' && !document.querySelector('.btn.play.on')`, 180_000, 'Play never reached a ready day');
+    await settle(900); await record('race-ready');
+    const race = await expectRace('This check passed on Nov 19. A person can release the $40.00.', AFTER_PAID);
+    if (race !== null && (race.bars !== 39 || race.future !== 0 || race.paid !== 1 || race.ready !== 1)) problems.push(`[${step}] race cells ${JSON.stringify(race)}`);
+    if (!(await run(`document.querySelector('.btn.play')?.disabled === true`))) problems.push(`[${step}] Play still open on a ready day`);
+    if (explainRequests - asked !== 1) problems.push(`[${step}] Play asked the AI ${explainRequests - asked} times, expected once`);
+    await checkLedger('after play', 'Nov 19, 2020');
+  }
 
   // The neighbour contract: four weeks billed from the readings, a $0 week with no PayPal call, the rest returned.
   await open(`${BASE}/`); await clickStop('Hold $120.00'); await settle(1200); await record('n-start');
