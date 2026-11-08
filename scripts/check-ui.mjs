@@ -156,7 +156,8 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   // Forging the low days: the what-if says the check would pass, the logger catches the dead days, and the real hold stays.
   await clickStop('Try to fake it'); await settle(300);
   await run(`[...document.querySelectorAll('.forge button')].find((b) => b.textContent === 'Forge these days').click()`);
-  await new Promise((r) => setTimeout(r, 800));
+  // Wait for the reply rather than a fixed time: a hosted demo far from the viewer can take over a second.
+  for (let i = 0; i < 30 && !(await run(`document.querySelectorAll('.forge .claim .finding').length > 0`)); i++) await new Promise((r) => setTimeout(r, 200));
   const forged = await run(`({ findings: [...document.querySelectorAll('.forge .claim .finding')].map((f) => f.textContent), text: document.querySelector('.forge')?.textContent ?? '', locked: !document.querySelector('.release.ready') || document.querySelector('.release.ready').textContent !== 'Release' })`);
   if (forged.findings.join(',') !== 'Not caught,Caught,Caught,Caught,Caught') problems.push(`[${step}] forge findings ${forged.findings.join(',')}`);
   if (!forged.text.includes('the check would pass')) problems.push(`[${step}] forge does not say the engine was fooled`);
