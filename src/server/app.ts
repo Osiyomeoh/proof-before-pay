@@ -67,6 +67,7 @@ const STATIC_FILES: ReadonlyArray<[string, URL, string]> = [
   ['/vendor/ag-grid.min.js', new URL('ag-grid-community/dist/ag-grid-community.min.noStyle.js', NODE_MODULES), 'text/javascript; charset=utf-8'],
   ['/styles.css', new URL('styles.css', PUBLIC_DIR), 'text/css; charset=utf-8'],
   ['/icon.svg', new URL('icon.svg', PUBLIC_DIR), 'image/svg+xml'],
+  ['/hero.svg', new URL('hero.svg', PUBLIC_DIR), 'image/svg+xml'],
   ['/fonts/sans-400.woff2', new URL('ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2', FONTS), 'font/woff2'],
   ['/fonts/sans-600.woff2', new URL('ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2', FONTS), 'font/woff2'],
   ['/fonts/mono-400.woff2', new URL('ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2', FONTS), 'font/woff2'],

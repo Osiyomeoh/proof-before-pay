@@ -127,13 +127,19 @@ async function renderLanding() {
       notice,
       el('p', { class: 'guide-link' }, el('a', { href: '/judge' }, 'Judging this? Follow the guided test'), icon('arrow', 14)),
     ),
-    el('aside', { class: 'story', ariaLabel: 'The 2020 outage in four dates' },
-      el('p', { class: 'story-head' }, el('span', {}, 'Inverter 01, Maui, 2020'), el('span', { class: 'pill quiet' }, 'measured')),
-      el('ol', {}, ...STORY.map(([date, kind, text]) => el('li', { class: kind },
-        el('span', { class: 'when mono' }, date),
-        el('span', { class: `pill ${kind}` }, icon(kind === 'ready' ? 'check' : 'lock', 12), kind === 'ready' ? 'READY' : 'HOLD'),
-        el('p', {}, text),
-      ))),
+    el('div', { class: 'landing-side' },
+      el('figure', { class: 'hero-art' },
+        el('img', { src: '/hero.svg', alt: 'Illustration: power from a solar roof flows into a locked hold, then to a released payment.', width: 560, height: 360 }),
+        el('figcaption', {}, el('span', { class: 'cap-hold' }, 'Held'), el('span', { class: 'cap-arrow', ariaHidden: 'true' }, '→'), el('span', { class: 'cap-ready' }, 'Released by a person')),
+      ),
+      el('aside', { class: 'story', ariaLabel: 'The 2020 outage in four dates' },
+        el('p', { class: 'story-head' }, el('span', {}, 'Inverter 01, Maui, 2020'), el('span', { class: 'pill quiet' }, 'measured')),
+        el('ol', {}, ...STORY.map(([date, kind, text]) => el('li', { class: kind },
+          el('span', { class: 'when mono' }, date),
+          el('span', { class: `pill ${kind}` }, icon(kind === 'ready' ? 'check' : 'lock', 12), kind === 'ready' ? 'READY' : 'HOLD'),
+          el('p', {}, text),
+        ))),
+      ),
     ),
     el('ol', { class: 'steps' }, ...steps.map(([title, text], i) => el('li', {}, el('span', { class: 'num mono' }, String(i + 1).padStart(2, '0')), el('b', {}, title), el('span', {}, text)))),
   ));
@@ -504,7 +510,9 @@ function renderVerdict(view) {
     }
   }
   if (state.notice !== null) parts.push(el('p', { class: `notice${state.notice.good ? ' good' : ''}`, role: 'status' }, state.notice.text));
-  return el('section', { class: 'card verdict' }, ...parts);
+  const verdict = milestone?.verdict ?? null;
+  const tone = view.status === 'HELD' && verdict !== null ? (verdict.status === 'RELEASE_READY' ? 'ready' : 'hold') : milestone === null && view.status !== 'VOIDED' && view.status !== 'AWAITING_APPROVAL' ? 'ready' : 'quiet';
+  return el('section', { class: `card verdict tone-${tone}` }, ...parts);
 }
 
 function renderClock(view) {

@@ -70,19 +70,19 @@ function loadGrid() {
 }
 
 function makeTheme(agGrid) {
-  // These read the page's colour tokens, so the grid follows light and dark without any code.
+  // These read the page's colour tokens, so the grid matches the page without any code.
   return agGrid.themeQuartz.withParams({
     backgroundColor: 'var(--card)',
     foregroundColor: 'var(--ink)',
-    headerBackgroundColor: 'var(--paper)',
+    headerBackgroundColor: 'var(--card-2)',
     headerTextColor: 'var(--ink-2)',
     borderColor: 'var(--line)',
-    accentColor: 'var(--series-peers)',
+    accentColor: 'var(--brand)',
     browserColorScheme: 'inherit',
     fontFamily: '"Plex Sans", system-ui, sans-serif',
     fontSize: 13,
     spacing: 6,
-    wrapperBorderRadius: 8,
+    wrapperBorderRadius: 12,
   });
 }
 
