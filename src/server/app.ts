@@ -1,4 +1,4 @@
-// App routes: pages, hold creation, the PayPal return, the read-only view and the recorded-day clock.
+// App routes: pages, hold creation, the PayPal return, the read-only views and the recorded-day clock.
 // Nothing here captures. The money routes in http.ts remain the only way to release or void.
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -8,10 +8,12 @@ import { addDays, isValidDate } from '../proof/engine.ts';
 import type { Fleet, Verdict } from '../proof/engine.ts';
 import type { LedgerRow } from '../proof/ledger.ts';
 import type { Contract, Payments, Proof } from '../payments/service.ts';
+import { isMetered } from '../payments/service.ts';
 import { checkRecord } from '../paypal/order-record.ts';
 import type { TimedRecord } from '../paypal/order-record.ts';
 import { DEMO_DESCRIPTION, DEMO_MILESTONES, DEMO_UNIT, buildView, currentIndex, opensOn, seenDate } from './demo.ts';
 import { readJson, send } from './http.ts';
+import { NEIGHBOUR_DESCRIPTION, NEIGHBOUR_MILESTONES, buildNeighbourView } from './neighbour.ts';
 
 // Kept here rather than imported, so the server doesn't load the AI module. test/excuse.test.ts checks they match.
 export const MAX_REPLY_CHARS = 600;
@@ -90,7 +92,7 @@ const FILES = new Map(STATIC_FILES.map(([path, file, type]): [string, StaticFile
 const contentPolicy = (nonce: string) =>
   `default-src 'none'; script-src 'self'; style-src 'self' 'nonce-${nonce}'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`;
 
-const REPLAY_STATUS: Record<string, number> = { MOVED: 200, NOT_FOUND: 404, NOT_HELD: 409, BUSY: 409, NOT_FORWARD: 409 };
+const REPLAY_STATUS: Record<string, number> = { MOVED: 200, NOT_FOUND: 404, NOT_HELD: 409, BUSY: 409, NOT_FORWARD: 409, PAST_WEEK: 409 };
 
 export function createApp(deps: AppDeps) {
   const { payments, proof, fleet, lastDate, mode, publicUrl, explain } = deps;
@@ -106,6 +108,10 @@ export function createApp(deps: AppDeps) {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': contentPolicy(nonce), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' });
     res.end(page.replace('__STYLE_NONCE__', nonce));
   }
+
+  // The verdict on the milestone being judged. A metered contract has none.
+  const currentVerdict = (contract: Contract): Verdict | null =>
+    isMetered(contract) ? null : buildView(contract, proof, fleet, mode, lastDate).milestones.find((m) => m.isCurrent)?.verdict ?? null;
 
   function redirect(res: ServerResponse, location: string) {
     res.writeHead(303, { Location: location });
@@ -174,20 +180,27 @@ export function createApp(deps: AppDeps) {
     }
 
     if (req.method === 'POST' && path === '/api/contracts') {
-      if ((await readJson(req)) === null) {
+      const body = await readJson(req);
+      if (body === null) {
         send(res, 415, { error: 'JSON_REQUIRED' });
+        return true;
+      }
+      const kind = body['kind'] ?? 'install';
+      if (kind !== 'install' && kind !== 'neighbour') {
+        send(res, 400, { error: 'BAD_KIND' });
         return true;
       }
       if (!underHoldLimit()) {
         send(res, 429, { error: 'TOO_MANY_HOLDS' });
         return true;
       }
-      // The contract is fixed on the server. Nothing in the request sets an amount.
+      // Both contracts are fixed on the server. The request picks one, and nothing in it sets an amount.
+      const neighbour = kind === 'neighbour';
       const id = crypto.randomUUID();
       const contract = await payments.startHold({
-        description: DEMO_DESCRIPTION,
+        description: neighbour ? NEIGHBOUR_DESCRIPTION : DEMO_DESCRIPTION,
         currency: 'USD',
-        milestones: [...DEMO_MILESTONES],
+        milestones: [...(neighbour ? NEIGHBOUR_MILESTONES : DEMO_MILESTONES)],
         returnUrl: `${publicUrl}/paypal/return?contract=${id}`,
         cancelUrl: `${publicUrl}/paypal/cancel?contract=${id}`,
         contractId: id,
@@ -203,6 +216,11 @@ export function createApp(deps: AppDeps) {
       const contract = payments.get(viewMatch[1]);
       if (contract === null) {
         send(res, 404, { error: 'NOT_FOUND' });
+        return true;
+      }
+      // A metered week has no verdict, so there's nothing for the AI to explain.
+      if (isMetered(contract)) {
+        send(res, 200, viewMatch[2] === 'view' ? buildNeighbourView(contract, fleet, mode, lastDate) : { explanation: null });
         return true;
       }
       const view = buildView(contract, proof, fleet, mode, lastDate);
@@ -222,7 +240,7 @@ export function createApp(deps: AppDeps) {
         send(res, 404, { error: 'NOT_FOUND' });
         return true;
       }
-      const verdict = buildView(contract, proof, fleet, mode, lastDate).milestones.find((m) => m.isCurrent)?.verdict ?? null;
+      const verdict = currentVerdict(contract);
       if (verdict === null || verdict.status !== 'HOLD') {
         send(res, 409, { error: 'NOT_ON_HOLD' });
         return true;
@@ -248,7 +266,7 @@ export function createApp(deps: AppDeps) {
         send(res, 400, { error: 'BAD_REPLY', maxChars: MAX_REPLY_CHARS });
         return true;
       }
-      const verdict = buildView(contract, proof, fleet, mode, lastDate).milestones.find((m) => m.isCurrent)?.verdict ?? null;
+      const verdict = currentVerdict(contract);
       if (verdict === null || verdict.status !== 'HOLD') {
         send(res, 409, { error: 'NOT_ON_HOLD' });
         return true;
@@ -318,9 +336,10 @@ export function createApp(deps: AppDeps) {
         send(res, 409, { error: 'ALL_RELEASED' });
         return true;
       }
-      // A date before this milestone opens moves to its first open date.
-      const opens = opensOn(contract, index);
-      const date = opens !== null && to < opens ? opens : to;
+      // A date before this milestone opens moves to its first open date. A metered week stops at its last day.
+      const opens = isMetered(contract) ? null : opensOn(contract, index);
+      const through = milestone.metering?.through ?? null;
+      const date = opens !== null && to < opens ? opens : through !== null && to > through ? through : to;
       const moved = payments.moveProofDate(contract.id, milestone.id, date);
       send(res, REPLAY_STATUS[moved.outcome] ?? 500, moved);
       return true;

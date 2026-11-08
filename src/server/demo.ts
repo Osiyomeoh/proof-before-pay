@@ -24,8 +24,10 @@ export const STORY_STOPS = [
   { date: '2020-11-19', label: 'A healthy week' },
 ] as const;
 
-const SETTLED: readonly MilestoneStatus[] = ['PENDING', 'CAPTURED', 'REFUNDED', 'REVERSED'];
-const MONEY_OUT: readonly MilestoneStatus[] = ['PENDING', 'CAPTURED', 'CAPTURING', 'CAPTURE_UNKNOWN'];
+export const DEMO_SOURCE = { unit: `Inverter ${DEMO_UNIT}`, site: 'Maui Ocean Center, NREL PVDAQ system 2105: a real 110 kW commercial roof' };
+
+const SETTLED: readonly MilestoneStatus[] = ['PENDING', 'CAPTURED', 'REFUNDED', 'REVERSED', 'NOTHING_DUE'];
+export const MONEY_OUT: readonly MilestoneStatus[] = ['PENDING', 'CAPTURED', 'CAPTURING', 'CAPTURE_UNKNOWN'];
 
 export function currentIndex(contract: Contract): number {
   return contract.milestones.findIndex((m) => !SETTLED.includes(m.status));
@@ -39,6 +41,12 @@ export function opensOn(contract: Contract, index: number): string | null {
 
 // The newest day the buyer has seen so far. Nothing newer may reach the browser.
 export function seenDate(contract: Contract): string {
+  // A metered contract's later weeks start out dated the day before they open, ahead of the clock,
+  // so its newest day seen is the current week's date.
+  if (contract.milestones.some((m) => m.metering !== null)) {
+    const live = contract.milestones[currentIndex(contract)] ?? contract.milestones.at(-1);
+    return live?.proofDate ?? DEMO_START;
+  }
   return contract.milestones.map((m) => m.proofDate).sort().at(-1) ?? DEMO_START;
 }
 
@@ -73,6 +81,7 @@ export type MilestoneView = {
 };
 
 export type ContractView = {
+  kind: 'install';
   id: string;
   mode: 'sample' | 'sandbox';
   description: string;
@@ -129,6 +138,7 @@ export function buildView(contract: Contract, proof: Proof, fleet: Fleet, mode: 
   const isHeld = contract.status === 'HELD';
 
   return {
+    kind: 'install',
     id: contract.id,
     mode,
     description: contract.description,
@@ -145,7 +155,7 @@ export function buildView(contract: Contract, proof: Proof, fleet: Fleet, mode: 
     milestones,
     history: recordedHistory(fleet, DEMO_UNIT, seen),
     timeline: contract.timeline,
-    source: { unit: `Inverter ${DEMO_UNIT}`, site: 'Maui Ocean Center, NREL PVDAQ system 2105: a real 110 kW commercial roof' },
+    source: DEMO_SOURCE,
     excusePresets: EXCUSE_PRESETS,
   };
 }

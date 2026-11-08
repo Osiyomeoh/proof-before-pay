@@ -1,8 +1,9 @@
 // The money rules. This is the only module that captures, and every capture goes through
-// release(), which recomputes the verdict on the server and needs a one-time tap token.
-// The client never supplies a verdict, an amount or an authorization ID.
+// release(), which recomputes the verdict or the metered bill on the server and needs a one-time
+// tap token. The client never supplies a verdict, an amount or an authorization ID.
 import { randomBytes, randomUUID } from 'node:crypto';
 import type { Verdict } from '../proof/engine.ts';
+import { billCents } from '../proof/meter.ts';
 import { PayPalError } from '../paypal/client.ts';
 import type { Capture, Money, PayPalClient } from '../paypal/client.ts';
 
@@ -14,11 +15,18 @@ export type MilestoneStatus =
   | 'CAPTURED'
   | 'DECLINED'
   | 'REFUNDED'
-  | 'REVERSED';
+  | 'REVERSED'
+  // A metered week that measured nothing: closed by a person, and no capture is made.
+  | 'NOTHING_DUE';
+
+// A week of measured output sold at a fixed price. The amount is worked out here when the week
+// has ended, from the recorded data, and can't exceed capCents, the week's share of the hold.
+export type Metering = { from: string; through: string; priceCentsPerKwh: number; capCents: number };
 
 export type Milestone = {
   id: string;
   title: string;
+  // For a metered week this is the cap until the week is billed, then the amount billed.
   amountCents: number;
   unitId: string;
   proofDate: string;
@@ -28,6 +36,8 @@ export type Milestone = {
   captureId: string | null;
   debugId: string | null;
   lastError: string | null;
+  metering: Metering | null;
+  billedTenths: number | null;
 };
 
 export type ContractStatus = 'AWAITING_APPROVAL' | 'HELD' | 'VOIDED' | 'CLOSED';
@@ -56,7 +66,7 @@ export type Contract = {
   timeline: TimelineEntry[];
 };
 
-export type NewMilestone = Pick<Milestone, 'title' | 'amountCents' | 'unitId' | 'proofDate'>;
+export type NewMilestone = Pick<Milestone, 'title' | 'amountCents' | 'unitId' | 'proofDate'> & { metering?: Metering };
 export type NewContract = {
   description: string;
   currency: string;
@@ -68,22 +78,24 @@ export type NewContract = {
 };
 
 export type Proof = (unitId: string, date: string) => Verdict;
+// Measured output over whole days, in tenths of a kWh.
+export type Meter = (unitId: string, from: string, through: string) => number;
 
 export type ReleaseResult =
   | { outcome: 'NOT_FOUND' }
   | { outcome: 'NOT_HELD'; contractStatus: ContractStatus }
   | { outcome: 'ALREADY_RELEASED'; milestone: Milestone }
   | { outcome: 'IN_PROGRESS' }
-  | { outcome: 'LOCKED'; verdict: Verdict }
+  | { outcome: 'LOCKED'; verdict: Verdict | null }
   | { outcome: 'TAP_REQUIRED' }
-  | { outcome: 'CAPTURED' | 'PENDING' | 'DECLINED'; milestone: Milestone }
+  | { outcome: 'CAPTURED' | 'PENDING' | 'DECLINED' | 'NOTHING_DUE'; milestone: Milestone }
   | { outcome: 'REJECTED'; error: string; debugId: string | null }
   | { outcome: 'UNKNOWN'; error: string };
 
 export type TapResult =
   | { outcome: 'NOT_FOUND' }
-  | { outcome: 'LOCKED'; verdict: Verdict }
-  | { outcome: 'READY'; token: string; verdict: Verdict };
+  | { outcome: 'LOCKED'; verdict: Verdict | null }
+  | { outcome: 'READY'; token: string; verdict: Verdict | null };
 
 export type VoidResult =
   | { outcome: 'NOT_FOUND' }
@@ -92,7 +104,7 @@ export type VoidResult =
   | { outcome: 'VOIDED' }
   | { outcome: 'REJECTED' | 'UNKNOWN'; error: string };
 
-export type MoveDateResult = { outcome: 'MOVED' | 'NOT_FOUND' | 'NOT_HELD' | 'BUSY' | 'NOT_FORWARD' };
+export type MoveDateResult = { outcome: 'MOVED' | 'NOT_FOUND' | 'NOT_HELD' | 'BUSY' | 'NOT_FORWARD' | 'PAST_WEEK' };
 
 export type WebhookResult = { applied: boolean; reason: 'APPLIED' | 'DUPLICATE' | 'IGNORED_TYPE' | 'UNMATCHED' | 'NO_CHANGE' };
 
@@ -114,6 +126,7 @@ const CAN_MOVE: Record<MilestoneStatus, readonly MilestoneStatus[]> = {
   DECLINED: [],
   REFUNDED: [],
   REVERSED: [],
+  NOTHING_DUE: [],
 };
 
 // Only for an attempt known to have moved no money. The old request ID would just replay the
@@ -141,18 +154,35 @@ const CAPTURE_EVENTS: Record<string, MilestoneStatus> = {
 };
 
 const COUNTS_AGAINST_HOLD: readonly MilestoneStatus[] = ['CAPTURING', 'CAPTURE_UNKNOWN', 'PENDING', 'CAPTURED', 'REFUNDED', 'REVERSED'];
-const DONE: readonly MilestoneStatus[] = ['PENDING', 'CAPTURED', 'REFUNDED', 'REVERSED'];
+const DONE: readonly MilestoneStatus[] = ['PENDING', 'CAPTURED', 'REFUNDED', 'REVERSED', 'NOTHING_DUE'];
 
 type Tap = { contractId: string; milestoneId: string | null; expiresAt: number };
 
 export type PaymentsOptions = {
   paypal: PayPalClient;
   proof: Proof;
+  // Needed only for metered contracts.
+  meter?: Meter;
   now?: () => number;
 };
 
+export const isMetered = (contract: Contract): boolean => contract.milestones.some((m) => m.metering !== null);
+
+// What the hold still covers: everything not captured, being captured or already settled.
+export function remainingCents(contract: Contract): number {
+  return contract.totalCents - contract.milestones.filter((m) => COUNTS_AGAINST_HOLD.includes(m.status)).reduce((sum, m) => sum + m.amountCents, 0);
+}
+
+function validMetering(m: NewMilestone): boolean {
+  const meter = m.metering;
+  if (meter === undefined) return true;
+  const date = /^\d{4}-\d{2}-\d{2}$/;
+  return date.test(meter.from) && date.test(meter.through) && meter.from <= meter.through && m.proofDate < meter.from
+    && Number.isSafeInteger(meter.priceCentsPerKwh) && meter.priceCentsPerKwh > 0 && meter.capCents === m.amountCents;
+}
+
 export function createPayments(options: PaymentsOptions) {
-  const { paypal, proof } = options;
+  const { paypal, proof, meter } = options;
   const now = options.now ?? Date.now;
   const contracts = new Map<string, Contract>();
   const taps = new Map<string, Tap>();
@@ -180,6 +210,8 @@ export function createPayments(options: PaymentsOptions) {
   }
 
   function closeIfSettled(contract: Contract) {
+    // A metered contract with money still held stays open until the rest goes back to the buyer.
+    if (isMetered(contract) && remainingCents(contract) > 0) return;
     if (contract.status === 'HELD' && contract.milestones.every((m) => DONE.includes(m.status) && m.status !== 'PENDING')) {
       contract.status = 'CLOSED';
       log(contract, 'app', 'CONTRACT_CLOSED', null, null);
@@ -203,8 +235,30 @@ export function createPayments(options: PaymentsOptions) {
     return null;
   }
 
+  // A metered week never captures as final: the bill is below the hold, and the rest is voided
+  // afterwards, the order the real sandbox run tested (spike/sandbox-run-result.json, voidAfterPartial).
   function isFinalCapture(contract: Contract, milestone: Milestone): boolean {
+    if (isMetered(contract)) return false;
     return contract.milestones.every((m) => m.id === milestone.id || DONE.includes(m.status));
+  }
+
+  // A metered week can be billed once its last day has been recorded.
+  const isDue = (milestone: Milestone): boolean => milestone.metering !== null && milestone.proofDate >= milestone.metering.through;
+
+  // After the last week is settled, the unused hold goes back to the buyer. If PayPal doesn't
+  // confirm the void, the hold stays open and the page still offers to return it.
+  async function returnRestIfDone(contract: Contract) {
+    const settled = contract.milestones.every((m) => DONE.includes(m.status) && m.status !== 'PENDING');
+    if (!isMetered(contract) || !settled || contract.status !== 'HELD' || contract.authorizationId === null) return;
+    if (remainingCents(contract) === 0) return closeIfSettled(contract);
+    try {
+      const result = await paypal.voidAuthorization(contract.authorizationId, randomUUID());
+      if (contract.status !== 'HELD') return;
+      contract.status = 'VOIDED';
+      log(contract, 'paypal', 'REST_RETURNED', null, result.debugId);
+    } catch (error) {
+      log(contract, 'paypal', 'REST_NOT_RETURNED', null, error instanceof PayPalError ? error.debugId : null);
+    }
   }
 
   function findCaptureTarget(resource: Record<string, unknown>, next: MilestoneStatus): { contract: Contract; milestone: Milestone } | null {
@@ -237,6 +291,10 @@ export function createPayments(options: PaymentsOptions) {
       if (input.milestones.length === 0 || input.milestones.some((m) => !Number.isSafeInteger(m.amountCents) || m.amountCents <= 0)) {
         throw new RangeError('a contract needs milestones with positive whole-cent amounts');
       }
+      const metered = input.milestones.filter((m) => m.metering !== undefined).length;
+      if (metered > 0 && (metered < input.milestones.length || meter === undefined || !input.milestones.every(validMetering))) {
+        throw new RangeError('a metered contract needs every milestone metered, a meter, and weeks that start after their first date');
+      }
       const id = input.contractId ?? randomUUID();
       const order = await paypal.createAuthorizeOrder({
         amount: { currency_code: input.currency, value: centsToValue(totalCents) },
@@ -266,6 +324,8 @@ export function createPayments(options: PaymentsOptions) {
           captureId: null,
           debugId: null,
           lastError: null,
+          metering: m.metering === undefined ? null : { ...m.metering },
+          billedTenths: null,
         })),
         timeline: [],
       };
@@ -295,6 +355,10 @@ export function createPayments(options: PaymentsOptions) {
     prepareRelease(contractId: string, milestoneId: string): TapResult {
       const milestone = contracts.get(contractId)?.milestones.find((m) => m.id === milestoneId);
       if (milestone === undefined) return { outcome: 'NOT_FOUND' };
+      // A metered week is ready to bill, or to close at $0, once its last day is in.
+      if (milestone.metering !== null) {
+        return isDue(milestone) ? { outcome: 'READY', token: issueTap(contractId, milestoneId), verdict: null } : { outcome: 'LOCKED', verdict: null };
+      }
       const verdict = proof(milestone.unitId, milestone.proofDate);
       if (verdict.status !== 'RELEASE_READY') return { outcome: 'LOCKED', verdict };
       return { outcome: 'READY', token: issueTap(contractId, milestoneId), verdict };
@@ -309,6 +373,8 @@ export function createPayments(options: PaymentsOptions) {
       if (contract.status !== 'HELD') return { outcome: 'NOT_HELD' };
       if (milestone.status !== 'WAITING' && milestone.status !== 'DECLINED') return { outcome: 'BUSY' };
       if (!(date > milestone.proofDate)) return { outcome: 'NOT_FORWARD' };
+      // A week's bill covers its own days, so its clock stops at its last day.
+      if (milestone.metering !== null && date > milestone.metering.through) return { outcome: 'PAST_WEEK' };
       milestone.proofDate = date;
       contract.timeline.push({ at: new Date(now()).toISOString(), source: 'app', type: 'RECORDED_DAYS_ADDED', milestoneId, debugId: null, detail: date });
       return { outcome: 'MOVED' };
@@ -326,13 +392,34 @@ export function createPayments(options: PaymentsOptions) {
       if (milestone.status === 'CAPTURING') return { outcome: 'IN_PROGRESS' };
       if (contract.status !== 'HELD' || contract.authorizationId === null) return { outcome: 'NOT_HELD', contractStatus: contract.status };
 
-      // Recomputed on every tap, so a token issued while the verdict was good can't outlive it.
-      const verdict = proof(milestone.unitId, milestone.proofDate);
-      if (verdict.status !== 'RELEASE_READY') {
-        log(contract, 'app', 'RELEASE_REFUSED_HOLD', milestone.id, null);
-        return { outcome: 'LOCKED', verdict };
+      if (milestone.metering !== null) {
+        if (!isDue(milestone)) {
+          log(contract, 'app', 'RELEASE_REFUSED_OPEN_WEEK', milestone.id, null);
+          return { outcome: 'LOCKED', verdict: null };
+        }
+      } else {
+        // Recomputed on every tap, so a token issued while the verdict was good can't outlive it.
+        const verdict = proof(milestone.unitId, milestone.proofDate);
+        if (verdict.status !== 'RELEASE_READY') {
+          log(contract, 'app', 'RELEASE_REFUSED_HOLD', milestone.id, null);
+          return { outcome: 'LOCKED', verdict };
+        }
       }
       if (!takeTap(tapToken, contractId, milestoneId)) return { outcome: 'TAP_REQUIRED' };
+
+      // The bill comes from the recorded week, worked out here at the tap. Nothing in the request sets it.
+      if (milestone.metering !== null && meter !== undefined) {
+        const { from, through, priceCentsPerKwh, capCents } = milestone.metering;
+        milestone.billedTenths = meter(milestone.unitId, from, through);
+        milestone.amountCents = billCents(milestone.billedTenths, priceCentsPerKwh, capCents);
+        if (milestone.amountCents === 0) {
+          // PayPal can't capture $0, and nothing is owed, so no call is made.
+          milestone.status = 'NOTHING_DUE';
+          log(contract, 'app', 'HUMAN_CLOSED_EMPTY_WEEK', milestone.id, null);
+          await returnRestIfDone(contract);
+          return { outcome: 'NOTHING_DUE', milestone };
+        }
+      }
 
       // No await between the checks above and this line, so a second tap sees CAPTURING.
       milestone.status = 'CAPTURING';
@@ -379,6 +466,7 @@ export function createPayments(options: PaymentsOptions) {
         return { outcome: 'UNKNOWN', error: milestone.lastError };
       }
       move(contract, milestone, next, 'paypal', capture.debugId);
+      if (current(milestone) === 'CAPTURED') await returnRestIfDone(contract);
       const settled = current(milestone);
       if (settled === 'CAPTURED' || settled === 'PENDING' || settled === 'DECLINED') return { outcome: settled, milestone };
       return { outcome: 'UNKNOWN', error: `milestone is ${settled}` };

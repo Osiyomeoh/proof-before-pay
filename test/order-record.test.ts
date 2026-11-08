@@ -48,7 +48,7 @@ function fakeToolkit(reply: () => Promise<{ content: { text: string }[] }>, opti
 }
 
 function milestone(id: string, amountCents: number, status: Milestone['status'] = 'WAITING', captureId: string | null = null): Milestone {
-  return { id, title: id, amountCents, unitId: '01', proofDate: '2020-11-19', status, captureRequestId: `req-${id}`, captureAttempt: 0, captureId, debugId: null, lastError: null };
+  return { id, title: id, amountCents, unitId: '01', proofDate: '2020-11-19', status, captureRequestId: `req-${id}`, captureAttempt: 0, captureId, debugId: null, lastError: null, metering: null, billedTenths: null };
 }
 
 function contract(overrides: Partial<Contract> = {}): Contract {

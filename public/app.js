@@ -52,10 +52,11 @@ function setMode(mode) {
 }
 
 // ---------- Landing ----------
-async function startHold(button, notice) {
+// The body only picks which fixed contract to start. The server sets every amount.
+async function startHold(button, notice, body) {
   button.disabled = true;
   notice.hidden = true;
-  const { ok, status, data } = await api('/api/contracts', {}).catch(() => ({ ok: false, status: 0, data: {} }));
+  const { ok, status, data } = await api('/api/contracts', body).catch(() => ({ ok: false, status: 0, data: {} }));
   if (ok && data.approveUrl) return location.assign(data.approveUrl);
   if (ok) return location.assign(`/c/${encodeURIComponent(data.id)}`);
   button.disabled = false;
@@ -70,9 +71,9 @@ async function loadMode() {
   return mode;
 }
 
-function holdStarter(label) {
+function holdStarter(label, body = {}) {
   const notice = el('p', { class: 'notice', hidden: true, role: 'status' });
-  const button = el('button', { class: 'release ready start-btn', type: 'button', on: { click: () => startHold(button, notice) } }, label, icon('arrow', 18));
+  const button = el('button', { class: 'release ready start-btn', type: 'button', on: { click: () => startHold(button, notice, body) } }, label, icon('arrow', 18));
   return { button, notice };
 }
 
@@ -143,7 +144,34 @@ async function renderLanding() {
     ),
     el('ol', { class: 'steps' }, ...steps.map(([title, text], i) => el('li', {}, el('span', { class: 'num mono' }, String(i + 1).padStart(2, '0')), el('b', {}, title), el('span', {}, text)))),
     renderPeople(),
+    renderNeighbourPitch(mode),
   ));
+}
+
+// The same roof, a second contract. Amounts are from the recorded weeks, worked out in test/neighbour.test.ts.
+function renderNeighbourPitch(mode) {
+  const { button, notice } = holdStarter('Hold $120.00 for four weeks of power', { kind: 'neighbour' });
+  const weeks = [
+    ['Week 1', '224.7 kWh', '$22.47'],
+    ['Week 2', '86.1 kWh', '$8.61'],
+    ['Week 3', '0.0 kWh', '$0.00'],
+    ['Week 4', '97.4 kWh', '$9.74'],
+  ];
+  return el('section', { class: 'neighbour-pitch' },
+    el('div', { class: 'neighbour-copy' },
+      el('p', { class: 'kicker' }, 'Second contract · same roof'),
+      el('h2', {}, 'A neighbour buys this roof\'s power.'),
+      el('p', { class: 'lede' }, 'PayPal holds $120.00 for four weeks at a demo price of $0.10 a kWh. Each week is billed from the inverter\'s own readings once the week is over, and a person taps to capture it. The outage week costs nothing, and whatever isn\'t used goes back.'),
+      el('div', { class: 'start' }, button, el('small', {}, mode === 'sample' ? 'Sample mode: no login and no money.' : 'You\'ll approve the hold with a PayPal sandbox buyer. Test money only.')),
+      notice,
+    ),
+    el('aside', { class: 'story bill-preview', ariaLabel: 'What the four weeks come to' },
+      el('p', { class: 'story-head' }, el('span', {}, 'Inverter 01, Sep 28 to Oct 25, 2020'), el('span', { class: 'pill quiet' }, 'measured')),
+      el('ol', { class: 'bill-rows' }, ...weeks.map(([week, kwh, cents]) => el('li', {}, el('span', {}, week), el('span', { class: 'mono' }, kwh), el('b', { class: 'mono' }, cents)))),
+      el('p', { class: 'bill-total' }, el('span', {}, 'Captured $40.82'), el('span', {}, 'Back to the buyer $79.18')),
+      el('p', { class: 'credit' }, 'A commercial roof\'s readings and a demo price, so this shows how billing works, not a real bill.'),
+    ),
+  );
 }
 
 // Captions say only what each photo shows. The people in them have nothing to do with this project or the Maui roof.
@@ -206,6 +234,8 @@ function renderGone() {
 }
 
 function loadExplanation() {
+  // A metered week has no verdict, so there's nothing for the AI to explain.
+  if (state.view.kind === 'neighbour') return;
   const verdict = currentMilestone(state.view)?.verdict ?? null;
   const key = verdict === null || state.view.status !== 'HELD' ? null : `${verdict.date}|${verdict.status}`;
   if (key === state.explanationKey) return;
@@ -397,29 +427,39 @@ function renderExcuse(view) {
   return el('div', { class: 'excuse' }, ...parts);
 }
 
-async function tapRelease(milestone, button) {
+// `amountCents` is what the page last showed. For a metered week the server works out the bill at the
+// tap, and the reply's amount is the one PayPal was asked for.
+async function tapRelease(milestone, button, amountCents) {
   button.disabled = true;
   state.notice = null;
+  const metered = state.view.kind === 'neighbour';
   const path = `/api/contracts/${encodeURIComponent(state.id)}/milestones/${encodeURIComponent(milestone.id)}`;
   const tap = await api(`${path}/tap`, {}).catch(() => null);
   if (tap?.data?.outcome !== 'READY') {
-    state.notice = { text: 'The server refused the release because the verdict is not ready. No money moved.', good: false };
+    state.notice = { text: metered ? 'The server refused: this week isn\'t over yet. No money moved.' : 'The server refused the release because the verdict is not ready. No money moved.', good: false };
     state.json = '';
     return refresh();
   }
   const result = await api(`${path}/release`, { tap: tap.data.token }).catch(() => null);
   const outcome = result?.data?.outcome;
+  const amount = usd(result?.data?.milestone?.amountCents ?? amountCents);
   const messages = {
-    CAPTURED: { text: `PayPal captured ${usd(milestone.amountCents)}.`, good: true },
-    PENDING: { text: `PayPal accepted the capture of ${usd(milestone.amountCents)}, and it is pending.`, good: true },
-    ALREADY_RELEASED: { text: 'This milestone was already released, so nothing was captured twice.', good: true },
-    DECLINED: { text: 'PayPal declined this capture. The milestone is still unpaid, and you can try again.', good: false },
+    CAPTURED: { text: `PayPal captured ${amount}.`, good: true },
+    PENDING: { text: `PayPal accepted the capture of ${amount}, and it is pending.`, good: true },
+    NOTHING_DUE: { text: `${milestone.title} closed at $0.00. Nothing was owed, so PayPal wasn't called.`, good: true },
+    ALREADY_RELEASED: { text: metered ? 'This week was already settled, so nothing was captured twice.' : 'This milestone was already released, so nothing was captured twice.', good: true },
+    DECLINED: { text: `PayPal declined this capture. The ${metered ? 'week' : 'milestone'} is still unpaid, and you can try again.`, good: false },
     REJECTED: { text: `PayPal refused the capture, so no money moved: ${result?.data?.error ?? ''}`, good: false },
-    LOCKED: { text: 'The verdict changed before the capture, so nothing was captured.', good: false },
+    LOCKED: { text: metered ? 'This week isn\'t over yet, so nothing was captured.' : 'The verdict changed before the capture, so nothing was captured.', good: false },
   };
   state.notice = messages[outcome] ?? { text: 'PayPal didn\'t give a clear answer. Don\'t assume the money moved or didn\'t: a retry is safe and can\'t capture twice.', good: false };
   state.json = '';
   await refresh();
+  // The last week also returns the unused hold.
+  if (metered && state.view?.status === 'VOIDED' && state.notice?.good) {
+    state.notice = { text: `${state.notice.text} The unused ${usd(state.view.returnedCents)} went back to the buyer.`, good: true };
+    render();
+  }
 }
 
 async function moveTo(date) {
@@ -510,7 +550,7 @@ function renderVerdict(view) {
         el('button', { class: 'release locked', type: 'button', disabled: true }, icon('lock', 18), 'Release locked'),
       );
     } else if (verdict.status === 'RELEASE_READY') {
-      const button = el('button', { class: 'release ready', type: 'button', on: { click: () => tapRelease(milestone, button) } }, `Release ${usd(milestone.amountCents)}`);
+      const button = el('button', { class: 'release ready', type: 'button', on: { click: () => tapRelease(milestone, button, milestone.amountCents) } }, `Release ${usd(milestone.amountCents)}`);
       parts.push(
         el('div', { class: 'eyebrow' }, el('span', {}, label), pill('ready', 'check', 'RELEASE_READY')),
         el('h1', {}, `${usd(milestone.amountCents)} can be released.`),
@@ -539,11 +579,14 @@ function renderVerdict(view) {
 
 function renderClock(view) {
   const { clock } = view;
-  const canMove = view.status === 'HELD' && currentMilestone(view) !== null;
+  const live = view.kind === 'neighbour' ? currentWeek(view) : currentMilestone(view);
+  const canMove = view.status === 'HELD' && live !== null;
+  // A billing week's clock stops at its last day, until that week is settled.
+  const weekOver = view.kind === 'neighbour' && live?.due === true;
   const controls = [];
   if (canMove) {
     if (clock.waitingUntil === null) {
-      controls.push(el('button', { class: 'btn', type: 'button', disabled: clock.date >= clock.lastDate || state.busy, on: { click: () => moveTo(addDays(clock.date, 1)) } }, 'Next day'));
+      controls.push(el('button', { class: 'btn', type: 'button', disabled: clock.date >= clock.lastDate || weekOver || state.busy, on: { click: () => moveTo(addDays(clock.date, 1)) } }, 'Next day'));
     }
     for (const stop of clock.stops) {
       controls.push(el('button', { class: 'btn stop', type: 'button', disabled: state.busy, on: { click: () => moveTo(stop.date) } }, shortDate(stop.date), el('small', {}, stop.label)));
@@ -553,21 +596,28 @@ function renderClock(view) {
     el('div', { class: 'now' },
       el('span', { class: 'kicker' }, canMove ? 'Replaying real readings' : 'Replay finished'),
       el('b', { class: 'mono' }, clock.label),
-      el('span', { class: 'cap' }, canMove ? 'Newest recorded day shown. One way only, like real time.' : 'Last recorded day used.'),
+      el('span', { class: 'cap' }, weekOver ? `${live.title} is over. Settle it to start the next week.` : canMove ? 'Newest recorded day shown. One way only, like real time.' : 'Last recorded day used.'),
     ),
     controls.length > 0 ? el('div', { class: 'controls' }, el('span', { class: 'jump' }, 'Jump to'), ...controls) : null,
   );
 }
 
+// The chart's shaded band: the 7 judged days, or the days of the billing week seen so far.
+let chartWindow = 7;
+let chartLabel;
+
 function renderEvidence(view) {
   chartHost = el('div', { class: 'chart' });
   chartDays = view.history;
+  const neighbour = view.kind === 'neighbour';
+  chartWindow = neighbour ? (currentWeek(view)?.days.length ?? 0) : 7;
+  chartLabel = neighbour ? 'Daily production of this inverter and the median of the other inverters, with measured sun below. This week\'s days are listed in the bill above.' : undefined;
   return el('section', { class: 'card evidence' },
     el('div', { class: 'card-head' }, el('h2', {}, `${view.source.unit}: last 45 days`), el('span', { class: 'unit mono' }, 'kWh a day')),
     el('div', { class: 'legend' },
       el('span', {}, el('i', { class: 'k-own' }), 'This inverter'),
       el('span', {}, el('i', { class: 'k-peers' }), 'Other inverters (median)'),
-      el('span', {}, el('i', { class: 'k-window' }), '7 days judged'),
+      chartWindow > 0 ? el('span', {}, el('i', { class: 'k-window' }), neighbour ? 'This billing week' : '7 days judged') : null,
     ),
     chartHost,
   );
@@ -595,7 +645,7 @@ function renderMoney(view) {
   if (view.authorizationId) facts.push(el('span', {}, 'Authorization ', el('span', { class: 'mono' }, view.authorizationId)));
   if (view.expiresAt && view.status === 'HELD') facts.push(el('span', {}, `Hold expires ${fullDate(view.expiresAt.slice(0, 10))}`));
   if (facts.length > 0) parts.push(el('div', { class: 'facts' }, ...facts));
-  parts.push(renderMilestones(view));
+  parts.push(view.kind === 'neighbour' ? renderWeeks(view) : renderMilestones(view));
   recordHost = el('div', { class: 'paypal-record' });
   parts.push(recordHost);
   if (view.status === 'HELD' && view.heldCents > 0) {
@@ -614,7 +664,7 @@ function renderMoney(view) {
 // again only when the money changes, so stepping through days doesn't call PayPal.
 function loadRecord() {
   const view = state.view;
-  const key = view.authorizationId ? JSON.stringify([view.status, view.authorizationId, view.milestones.map((m) => [m.status, m.captureId])]) : null;
+  const key = view.authorizationId ? JSON.stringify([view.status, view.authorizationId, (view.milestones ?? view.weeks).map((m) => [m.status, m.captureId])]) : null;
   if (key === state.recordKey) return;
   state.recordKey = key;
   state.record = null;
@@ -671,6 +721,7 @@ const STATUS_TEXT = {
   DECLINED: 'PayPal declined. Not paid.',
   REFUNDED: 'Refunded',
   REVERSED: 'Reversed',
+  NOTHING_DUE: 'Nothing measured, so closed at $0.00. PayPal wasn\'t called.',
 };
 
 function renderMilestones(view) {
@@ -704,6 +755,10 @@ const EVENT_TEXT = {
   HOLD_VOIDED: 'Rest of the hold voided',
   HOLD_VOIDED_OR_EXPIRED: 'Hold voided or expired',
   HOLD_REAUTHORIZED: 'Hold reauthorized',
+  RELEASE_REFUSED_OPEN_WEEK: 'Release refused: the week isn\'t over',
+  HUMAN_CLOSED_EMPTY_WEEK: 'A person closed a $0.00 week. No PayPal call.',
+  REST_RETURNED: 'Unused hold voided and returned to the buyer',
+  REST_NOT_RETURNED: 'PayPal didn\'t confirm the void. The rest is still held.',
 };
 
 function renderTimeline(view) {
@@ -725,8 +780,167 @@ function renderTimeline(view) {
 let boardHost = null;
 let ledger = null;
 
+// ---------- Neighbour contract ----------
+const kwh = (tenths) => `${(tenths / 10).toFixed(1)} kWh`;
+
+function currentWeek(view) {
+  return view.weeks.find((w) => w.isCurrent) ?? null;
+}
+
+const weekDates = (w) => `${shortDate(w.from)} to ${shortDate(w.through)}`;
+
+// Seven cells, one per day. Days not recorded yet stay blank, so nothing ahead of the clock shows.
+function renderWeekDays(week) {
+  const cells = Array.from({ length: 7 }, (_, i) => {
+    const date = addDays(week.from, i);
+    const day = week.days.find((d) => d.date === date);
+    if (day === undefined) return el('li', { class: 'none', title: `${fullDate(date)}: not recorded yet` }, el('span', { class: 'd' }, shortDate(date)), el('b', { class: 'mono' }, '·'));
+    const kind = day.tenths === null ? 'none' : day.tenths === 0 ? 'low' : 'ok';
+    return el('li', { class: kind, title: `${fullDate(date)}: ${day.tenths === null ? 'no reading, counted as 0' : kwh(day.tenths)}` },
+      el('span', { class: 'd' }, shortDate(date)),
+      el('b', { class: 'mono' }, day.tenths === null ? '—' : (day.tenths / 10).toFixed(1)));
+  });
+  return el('div', { class: 'meter bill' },
+    el('div', { class: 'meter-top' }, el('span', {}, `${kwh(week.tenths)} × $0.10 a kWh`), el('b', { class: 'mono' }, usd(week.cents))),
+    el('ol', { class: 'days', ariaLabel: 'Measured kWh each day of this week' }, ...cells),
+    el('p', { class: 'meter-key' }, `kWh each day, read to the tenth and rounded down. A missing day counts as 0. Capped at ${usd(week.capCents)} a week.`),
+  );
+}
+
+function renderWeekCard(view) {
+  const week = currentWeek(view);
+  const parts = [];
+  const pill = (kind, iconName, text) => el('span', { class: `pill ${kind}` }, icon(iconName, 14), text);
+  let tone = 'quiet';
+
+  if (view.status === 'AWAITING_APPROVAL') {
+    parts.push(
+      el('div', { class: 'eyebrow' }, el('span', {}, 'Hold not placed yet'), pill('quiet', 'clock', 'WAITING')),
+      el('h1', {}, `Approve the ${usd(view.totalCents)} hold on PayPal.`),
+      el('p', { class: 'sub' }, state.holdNote ?? 'Approving only places a hold. Each week is billed from the readings, and only after a person taps.'),
+    );
+    if (view.approveUrl) parts.push(el('a', { class: 'release ready', href: view.approveUrl }, 'Continue to PayPal', icon('arrow', 18)));
+  } else if (view.status === 'VOIDED') {
+    tone = view.releasedCents > 0 ? 'ready' : 'quiet';
+    parts.push(
+      el('div', { class: 'eyebrow' }, el('span', {}, 'Contract finished'), pill('quiet', 'check', 'SETTLED')),
+      el('h1', {}, `${usd(view.releasedCents)} paid for measured power.`),
+      el('p', { class: 'sub' }, `The unused ${usd(view.returnedCents)} went back to the buyer.`),
+    );
+  } else if (week === null && view.status === 'HELD') {
+    // Every week is settled but money is still held: the last capture is pending, or PayPal didn't confirm the void.
+    const pending = view.weeks.some((w) => w.status === 'PENDING');
+    parts.push(
+      el('div', { class: 'eyebrow' }, el('span', {}, 'All weeks settled'), pill('hold', 'lock', 'STILL HELD')),
+      el('h1', {}, `${usd(view.heldCents)} is still held.`),
+      el('p', { class: 'sub' }, pending
+        ? 'A capture is still pending at PayPal, so the unused hold wasn\'t returned yet. You can give it back below.'
+        : 'PayPal didn\'t confirm returning the unused hold. You can try again below. Nothing more can be captured.'),
+    );
+  } else if (week === null) {
+    tone = 'ready';
+    parts.push(
+      el('div', { class: 'eyebrow' }, el('span', {}, 'Contract finished'), pill('ready', 'check', 'PAID')),
+      el('h1', {}, `${usd(view.releasedCents)} paid for measured power.`),
+      el('p', { class: 'sub' }, 'Every week was billed at its cap, so the whole hold was used.'),
+    );
+  } else {
+    const label = `${week.title} of ${view.weeks.length} · ${weekDates(week)}`;
+    if (!week.due) {
+      const seen = week.days.length;
+      parts.push(
+        el('div', { class: 'eyebrow' }, el('span', {}, label), pill('quiet', 'clock', 'MEASURING')),
+        el('h1', {}, seen === 0 ? `${week.title} hasn't started.` : `${kwh(week.tenths)} so far.`),
+        el('p', { class: 'sub' }, `${seen} of 7 days recorded. The bill is worked out after ${fullDate(week.through)}, from the inverter's readings.`),
+        renderWeekDays(week),
+        el('button', { class: 'release locked', type: 'button', disabled: true }, icon('lock', 18), 'Locked until the week ends'),
+        el('p', { class: 'after' }, `Up to ${usd(week.capCents)} of the hold covers this week. Nothing is captured while it runs.`),
+      );
+    } else if (week.cents > 0) {
+      tone = 'ready';
+      const button = el('button', { class: 'release ready', type: 'button', on: { click: () => tapRelease(week, button, week.cents) } }, `Release ${usd(week.cents)}`);
+      parts.push(
+        el('div', { class: 'eyebrow' }, el('span', {}, label), pill('ready', 'check', 'BILL READY')),
+        el('h1', {}, `${usd(week.cents)} is due for ${week.title.toLowerCase()}.`),
+        el('p', { class: 'sub' }, `The inverter measured ${kwh(week.tenths)}. Nothing is captured until a person taps.`),
+        renderWeekDays(week),
+        button,
+        el('p', { class: 'after' }, 'The readings set the amount, on the server. You only decide whether it goes.'),
+      );
+    } else {
+      const button = el('button', { class: 'release ready', type: 'button', on: { click: () => tapRelease(week, button, 0) } }, `Close ${week.title.toLowerCase()} at $0.00`);
+      parts.push(
+        el('div', { class: 'eyebrow' }, el('span', {}, label), pill('hold', 'lock', 'NOTHING DUE')),
+        el('h1', {}, `Nothing is due for ${week.title.toLowerCase()}.`),
+        el('p', { class: 'sub' }, `The inverter measured ${kwh(week.tenths)}, so there's no charge and no PayPal call.`),
+        renderWeekDays(week),
+        button,
+        el('p', { class: 'after' }, 'Closing the week records it. No money moves.'),
+      );
+    }
+    if (week.lastError) parts.push(el('p', { class: 'notice' }, `Last attempt: ${week.lastError}`));
+  }
+  if (state.notice !== null) parts.push(el('p', { class: `notice${state.notice.good ? ' good' : ''}`, role: 'status' }, state.notice.text));
+  return el('section', { class: `card verdict tone-${tone}` }, ...parts);
+}
+
+function renderWeeks(view) {
+  return el('div', { class: 'miles-wrap' },
+    el('h3', {}, `Weeks · $0.10 a kWh, up to ${view.terms.capKwh} kWh a week`),
+    el('ol', { class: 'miles' }, ...view.weeks.map((w) => {
+      let note;
+      let amount = `up to ${usd(w.capCents)}`;
+      if (w.status === 'CAPTURED' || w.status === 'PENDING') {
+        note = `${kwh(w.tenths)} measured. ${STATUS_TEXT[w.status]}`;
+        amount = usd(w.cents);
+      } else if (w.status === 'NOTHING_DUE') {
+        note = STATUS_TEXT.NOTHING_DUE;
+        amount = usd(0);
+      } else if (view.status !== 'HELD') {
+        note = 'Not billed';
+      } else if (w.isCurrent && w.due) {
+        note = `Over: ${kwh(w.tenths)} measured, waiting for a person`;
+        amount = usd(w.cents);
+      } else if (w.isCurrent) {
+        note = `Running: ${kwh(w.tenths)} so far`;
+      } else {
+        note = STATUS_TEXT[w.status] === undefined || w.status === 'WAITING' ? 'Not started' : STATUS_TEXT[w.status];
+      }
+      if (w.captureId) note += ` · ${w.captureId}`;
+      const kind = w.status === 'CAPTURED' ? 'paid' : w.isCurrent && view.status === 'HELD' ? 'now' : 'later';
+      return el('li', { class: kind }, el('span', { class: 't' }, `${w.title} · ${weekDates(w)}`), el('span', { class: 'a' }, amount), el('span', { class: 's' }, note));
+    })),
+  );
+}
+
+// Said on the page, not only in the README.
+function renderLimits(view) {
+  return el('section', { class: 'card limits' },
+    el('h2', {}, 'What this shows, and what it doesn\'t'),
+    el('ul', {},
+      el('li', {}, 'It bills what this inverter measured, not what a neighbour used. A real setup needs a meter on the neighbour\'s line.'),
+      el('li', {}, 'Selling power to a neighbour can need the utility\'s or a regulator\'s permission. That depends on where you are, and this demo doesn\'t check it.'),
+      el('li', {}, `These are 2020 readings from ${view.source.site}, not a home. The dataset's kWh figures run high, so the amounts show how billing works, not a real bill.`),
+      el('li', {}, `$0.10 a kWh is a demo price, not a tariff. Each week is capped at ${view.terms.capKwh} kWh, above this inverter's best full week of 2020 before Sep 28.`),
+      el('li', {}, `The contract runs ${view.terms.weeks} weeks, because a PayPal authorization is valid for 29 days.`),
+    ),
+  );
+}
+
+function renderNeighbour(view) {
+  boardHost = null;
+  aiHost = null;
+  app.replaceChildren(renderClock(view), el('div', { class: 'stage' },
+    el('div', { class: 'main-col' }, renderWeekCard(view), renderEvidence(view), renderLimits(view)),
+    el('div', { class: 'side-col' }, renderMoney(view)),
+  ));
+  renderRecord();
+  drawChart(chartHost, chartDays, chartWindow, chartLabel);
+}
+
 function render() {
   const view = state.view;
+  if (view.kind === 'neighbour') return renderNeighbour(view);
   if (boardHost === null || !boardHost.isConnected) {
     boardHost = el('div');
     ledger = createLedger();
@@ -739,7 +953,7 @@ function render() {
   ));
   renderAi();
   renderRecord();
-  drawChart(chartHost, chartDays, 7);
+  drawChart(chartHost, chartDays, chartWindow, chartLabel);
   ledger.show(view.id, view.clock.date, view.source.unit);
 }
 
@@ -749,7 +963,7 @@ new ResizeObserver(() => {
   const width = chartHost.clientWidth;
   if (Math.abs(width - lastWidth) > 4) {
     lastWidth = width;
-    drawChart(chartHost, chartDays, 7);
+    drawChart(chartHost, chartDays, chartWindow, chartLabel);
   }
 }).observe(document.documentElement);
 

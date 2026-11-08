@@ -16,6 +16,8 @@ The hosted demo runs in sample mode: real production data, with recorded PayPal 
 4. Move to **Oct 22**. Output returns, and the check still holds. By **Oct 26** it's back to zero.
 5. Move to **Nov 19**. The check passes, and you tap Release to capture $40 of the $100 hold.
 
+**A second contract on the same roof.** At the bottom of the landing page, **Hold $120.00 for four weeks of power** lets a neighbour buy inverter 01's output at a demo price of $0.10 a kWh. Each week is billed from that week's readings once its last day is in, and a person taps to capture it: $22.47, $8.61, then the outage week closes at $0.00 with no PayPal call, then $9.74. After the last week, the unused $79.18 is voided back to the buyer.
+
 ## Who decides what
 
 | Step | Decided by |
@@ -23,6 +25,7 @@ The hosted demo runs in sample mode: real production data, with recorded PayPal 
 | Hold, capture, void | PayPal Orders and Payments APIs, called only by the server's payment code |
 | Whether a milestone is ready | A fixed rule: a 7-day average of at least 70% of the inverter's usual share of the other inverters' median, with no day under 30% |
 | Release | A one-time token, issued only while the server's own verdict is ready |
+| A neighbour's weekly bill | The week's recorded kWh × $0.10, capped at 300 kWh, worked out on the server at the tap. The request sets no amount |
 | Explaining a hold, drafting a question, splitting an installer's reply into claims | Claude Sonnet 4.6 on AWS Bedrock. It has no tools and no payment data, and its module can't import payment or server code |
 | Checking those claims | Fixed rules against the measured data. The AI never names a cause |
 | "PayPal's own record" panel | PayPal Agent Toolkit, `get_order` only, read-only. The app refuses a toolkit that lists any other tool |
@@ -34,6 +37,7 @@ AG Grid powers the production ledger, which compares the two pay rules day by da
 - **The outage:** inverter 01 on a Maui roof logged 0.0 kWh on Oct 9–21, 2020 while the other inverters kept producing. Output returned Oct 22–25, then went back to zero for 18 days.
 - **Across the roof:** over 9 inverters and 13,257 judged days, days our rule paid were followed within 14 days by a day under 30% of usual 7.2% of the time, against 8.7% for the one-good-day rule. Ours held 641 days the other rule paid. Most of the gap comes from one inverter (`npm run eval:fleet`, results in `spike/eval-fleet.json`).
 - **Forgery test:** rewriting inverter 01's 40 outage days to normal totals fools the engine. The logger's DC voltage caught 29 of the 40, every day the inverter really made 0 kWh, and missed 11 days with real but smaller output. It raised 0 false alarms across 6,791 real inverter-days (`node spike/forge-test.ts`).
+- **Neighbour contract:** inverter 01's four weeks from Sep 28 to Oct 25, 2020, each day read to the tenth of a kWh and rounded down, bill $22.47, $8.61, $0.00 and $9.74. The 300 kWh weekly cap is above all 38 full weeks it made in 2020 before then (best 289.6 kWh). Over HTTP, $40.82 is captured in three captures, none final, and the $79.18 left is voided (`test/neighbour.test.ts`).
 - **PayPal sandbox:** a hold captured in two parts, a void after a partial capture, a capture above the hold refused, and a repeated request ID returning the same capture (`spike/sandbox-run-result.json`).
 
 ## Limits
@@ -43,7 +47,8 @@ AG Grid powers the production ledger, which compares the two pay rules day by da
 - The dataset's kWh figures look too high in absolute terms, so verdicts use shares, not kWh.
 - Forging data gets harder, not impossible: the logger check catches a forged day only when the DC side was dead, and someone who rewrites every raw reading would pass.
 - The token can't prove who tapped. In the demo, any client can move a contract forward through recorded days; it can't go back or supply a verdict. A real product would use today's date.
-- Not yet run: reauthorizing a hold on the sandbox, and a real PayPal webhook event on the deployed URL. Signature checks are tested with a test certificate.
+- The neighbour contract bills what inverter 01 measured, not what a neighbour used: a real setup needs a meter on the neighbour's line. Selling power to a neighbour can need the utility's or a regulator's permission, and this demo doesn't check it. $0.10 a kWh is a demo price, and the kWh run high, so the amounts show how billing works, not a real bill.
+- Not yet run: reauthorizing a hold on the sandbox, three partial captures and then a void on one sandbox authorization, and a real PayPal webhook event on the deployed URL. Signature checks are tested with a test certificate.
 
 ## Run it locally
 

@@ -29,7 +29,7 @@ function linePath(days, key, x, y) {
   return path;
 }
 
-export function drawChart(host, days, windowDays) {
+export function drawChart(host, days, windowDays, label = 'Daily production of this inverter and the median of the other inverters, with measured sun below. The same days are in the table underneath.') {
   host.replaceChildren();
   const width = Math.max(host.clientWidth, 280);
   const left = 28;
@@ -41,7 +41,7 @@ export function drawChart(host, days, windowDays) {
   const height = top + lineHeight + gap + sunHeight + 22;
   const plotW = width - left - right;
 
-  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': 'Daily production of this inverter and the median of the other inverters, with measured sun below. The same days are in the table underneath.' }, host);
+  const svg = svgEl('svg', { viewBox: `0 0 ${width} ${height}`, role: 'img', 'aria-label': label }, host);
   // Half a day of padding each side, so the sun bars stay inside the plot.
   const pad = plotW / days.length / 2;
   const x = (i) => left + pad + (days.length === 1 ? 0 : (i / (days.length - 1)) * (plotW - 2 * pad));
@@ -50,9 +50,11 @@ export function drawChart(host, days, windowDays) {
   const yMax = Math.ceil(highest / 25) * 25;
   const y = (v) => top + lineHeight - (v / yMax) * lineHeight;
 
-  // The days the verdict is judged on.
-  const bandStart = x(Math.max(0, days.length - windowDays)) - pad;
-  svgEl('rect', { class: 'band', x: bandStart, y: top, width: width - right - bandStart, height: lineHeight }, svg);
+  // The days the verdict is judged on, or the days of the billing week seen so far. None, no band.
+  if (windowDays > 0) {
+    const bandStart = x(Math.max(0, days.length - windowDays)) - pad;
+    svgEl('rect', { class: 'band', x: bandStart, y: top, width: width - right - bandStart, height: lineHeight }, svg);
+  }
 
   for (let tick = 0; tick <= yMax; tick += 25) {
     svgEl('line', { class: tick === 0 ? 'base' : 'grid', x1: left, x2: width - right, y1: y(tick), y2: y(tick) }, svg);

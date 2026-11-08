@@ -148,7 +148,8 @@ export function recordedOrder(contract: Contract): OrderRecord {
       amount: value(contract.totalCents),
       payments: {
         authorizations: contract.authorizationId === null ? [] : [{ id: contract.authorizationId, status: authStatus, amount: value(contract.totalCents) }],
-        captures: captured.map((m) => ({ id: m.captureId, status: CAPTURE_STATUS[m.status], amount: value(m.amountCents), final_capture: contract.status === 'CLOSED' && m === captured.at(-1) })),
+        // A metered week never captures as final (src/payments/service.ts, isFinalCapture).
+        captures: captured.map((m) => ({ id: m.captureId, status: CAPTURE_STATUS[m.status], amount: value(m.amountCents), final_capture: contract.status === 'CLOSED' && m.metering === null && m === captured.at(-1) })),
       },
     }],
   };

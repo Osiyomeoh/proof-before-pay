@@ -202,6 +202,27 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   await expectRecord('$0.00 captured, rest of the hold voided');
   await open(`${BASE}/c/no-such-hold`); await record('gone');
 
+  // The neighbour contract: four weeks billed from the readings, a $0 week with no PayPal call, the rest returned.
+  await open(`${BASE}/`); await clickStop('Hold $120.00'); await settle(1200); await record('n-start');
+  await expectHeading('Week 1 hasn\'t started.');
+  await expectRecord('$0.00 captured, hold open');
+  if (await run(`!!document.querySelector('.ledger, .ai')`)) problems.push(`[${step}] installer panels shown on a neighbour contract`);
+  await clickStop('Next day'); await settle(900); await record('n-measuring');
+  const measuring = await run(`({ h1: document.querySelector('h1')?.textContent, seen: document.querySelectorAll('.verdict .days li:not(.none)').length, locked: !!document.querySelector('.release.locked') })`);
+  if (!measuring.h1?.endsWith('kWh so far.') || measuring.seen !== 1 || !measuring.locked) problems.push(`[${step}] open week shows ${JSON.stringify(measuring)}`);
+  const settleWeek = async (stop, due, record$, name) => {
+    await clickStop(stop); await settle(1200); await record(`${name}-due`);
+    await expectHeading(due);
+    if (await run(`document.querySelector('.rail button')?.textContent === 'Next day' && !document.querySelector('.rail button').disabled`)) problems.push(`[${step}] Next day still open after the week ended`);
+    await clickSel('.release.ready'); await settle(1200); await record(`${name}-settled`);
+    await expectRecord(record$);
+  };
+  await settleWeek('Oct 4', '$22.47 is due for week 1.', '$22.47 captured, hold open', 'n-w1');
+  await settleWeek('Oct 11', '$8.61 is due for week 2.', '$31.08 captured, hold open', 'n-w2');
+  await settleWeek('Oct 18', 'Nothing is due for week 3.', '$31.08 captured, hold open', 'n-w3');
+  await settleWeek('Oct 25', '$9.74 is due for week 4.', '$40.82 captured, rest of the hold voided', 'n-w4');
+  await expectHeading('$40.82 paid for measured power.');
+
   // A restart clears holds. The page must say so once, then stop asking.
   if (width === 390 && scheme === 'light') {
     await open(`${BASE}/`); await clickSel('.release.ready'); await settle(1200);

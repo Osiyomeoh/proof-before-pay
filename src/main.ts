@@ -16,6 +16,7 @@ import { judge } from './proof/engine.ts';
 import type { Verdict } from './proof/engine.ts';
 import { forgeryTest } from './proof/forgery.ts';
 import { createLedger } from './proof/ledger.ts';
+import { readMeter } from './proof/meter.ts';
 import { MAUI_INVERTERS, commonDates, loadMauiFleet } from './proof/maui.ts';
 import { createApp } from './server/app.ts';
 import { DEMO_UNIT } from './server/demo.ts';
@@ -39,7 +40,8 @@ const lastDate = commonDates(fleet).at(-1);
 if (lastDate === undefined) throw new Error('no production data found');
 
 const proof = (unitId: string, date: string) => judge(fleet, unitId, date);
-const payments = createPayments({ paypal, proof });
+const meter = (unitId: string, from: string, through: string) => readMeter(fleet, unitId, from, through).tenths;
+const payments = createPayments({ paypal, proof, meter });
 const port = Number(process.env['PORT'] ?? 3000);
 const publicUrl = process.env['PUBLIC_URL'] ?? process.env['RENDER_EXTERNAL_URL'] ?? `http://localhost:${port}`;
 
