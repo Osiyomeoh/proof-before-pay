@@ -13,6 +13,7 @@ function icon(kind, size = 16) {
     lock: 'M6 7V5a4 4 0 0 1 8 0v2M5 7h10a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z',
     check: 'M4 10.5l4 4 8-9',
     clock: 'M10 5v5l3 2M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16z',
+    arrow: 'M4 10h12M11 5l5 5-5 5',
   };
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 20 20');
@@ -70,10 +71,8 @@ async function loadMode() {
 }
 
 function holdStarter(label) {
-  const notice = el('p', { class: 'notice', hidden: true });
-  const button = el('button', { class: 'release ready', type: 'button', on: { click: () => startHold(button, notice) } }, label);
-  button.style.width = 'auto';
-  button.style.paddingInline = '24px';
+  const notice = el('p', { class: 'notice', hidden: true, role: 'status' });
+  const button = el('button', { class: 'release ready start-btn', type: 'button', on: { click: () => startHold(button, notice) } }, label, icon('arrow', 18));
   return { button, notice };
 }
 
@@ -90,48 +89,58 @@ async function renderJudge() {
     ['Tap Dec 19, then Release $60.00', 'The second milestone is checked 30 days later. Releasing it closes the hold.'],
     ['Check our work', 'In the ledger, tap Rules disagree and download the CSV. Or start another hold and give the money back.'],
   ];
-  app.replaceChildren(el('section', { class: 'landing' },
-    el('div', {},
+  app.replaceChildren(el('section', { class: 'landing judge' },
+    el('div', { class: 'landing-copy' },
+      el('p', { class: 'kicker' }, 'Guided test · about 3 minutes'),
       el('h1', {}, 'Seven taps through a real outage.'),
       el('p', { class: 'lede' }, 'These are real 2020 readings from a commercial roof in Maui. Try to get paid before the system has proved itself.'),
-      el('div', { class: 'start' },
-        button,
-        el('small', {}, mode === 'sample' ? 'Sample mode: no login and no money. PayPal and AI replies are recorded.' : 'Real PayPal sandbox calls. Test money only.'),
-      ),
+      el('div', { class: 'start' }, button, el('small', {}, mode === 'sample' ? 'Sample mode: no login and no money. PayPal and AI replies are recorded.' : 'Real PayPal sandbox calls. Test money only.')),
       notice,
     ),
-    el('ol', { class: 'steps guide' }, ...steps.map(([title, text]) => el('li', {}, el('b', {}, title), el('span', {}, text)))),
+    el('ol', { class: 'checklist' }, ...steps.map(([title, text], i) => el('li', {}, el('span', { class: 'num mono' }, String(i + 1).padStart(2, '0')), el('div', {}, el('b', {}, title), el('p', {}, text))))),
   ));
 }
+
+// Every line here is a measured fact from the replay (see CLAIMS.md), not an illustration.
+const STORY = [
+  ['Oct 9', 'hold', 'Inverter 01 drops to 0 kWh. The other inverters on the roof keep producing.'],
+  ['Oct 22', 'hold', 'Output comes back for four days. One good day isn\'t enough here.'],
+  ['Oct 26', 'hold', 'Back to zero for 18 more days. A pay-after-one-good-day rule paid on Oct 23.'],
+  ['Nov 19', 'ready', 'A full healthy week. The check passes, and a person can release $40.00.'],
+];
 
 async function renderLanding() {
   const mode = await loadMode();
   const { button, notice } = holdStarter('Hold $100.00 and watch the check');
-
   const steps = [
     ['PayPal holds the money', 'The buyer approves a $100.00 authorization for two milestones. Nothing is captured.'],
-    ['The data decides', 'A fixed rule compares this inverter with others on the same roof and with measured sun.'],
+    ['The data decides', 'A fixed rule compares this inverter with the others on the same roof and with measured sun.'],
     ['The AI explains', 'Claude explains the result and drafts a question for the installer. It can\'t change the result or move money.'],
     ['A person releases', 'Release stays locked until the data passes. Then a person taps, and PayPal captures that milestone.'],
   ];
-
   app.replaceChildren(el('section', { class: 'landing' },
-    el('div', {},
+    el('div', { class: 'landing-copy' },
+      el('p', { class: 'kicker' }, 'Solar milestone payments on PayPal'),
       el('h1', {}, 'Your solar installer gets paid when the system proves it\'s producing.'),
       el('p', { class: 'lede' }, 'Replay a real 2020 outage on a real roof. A rule that pays after one good day would have paid during a four-day recovery, just before 18 more days at zero. This one keeps the money on hold.'),
-      el('div', { class: 'start' },
-        button,
-        el('small', {}, mode === 'sample' ? 'Sample mode: no login and no money. PayPal replies are recorded.' : 'You\'ll approve the hold with a PayPal sandbox buyer. Test money only.'),
-      ),
+      el('div', { class: 'start' }, button, el('small', {}, mode === 'sample' ? 'Sample mode: no login and no money. PayPal replies are recorded.' : 'You\'ll approve the hold with a PayPal sandbox buyer. Test money only.')),
       notice,
-      el('p', { class: 'guide-link' }, el('a', { href: '/judge' }, 'Judging this? Follow the guided test')),
+      el('p', { class: 'guide-link' }, el('a', { href: '/judge' }, 'Judging this? Follow the guided test'), icon('arrow', 14)),
     ),
-    el('ol', { class: 'steps' }, ...steps.map(([title, text]) => el('li', {}, el('b', {}, title), el('span', {}, text)))),
+    el('aside', { class: 'story', ariaLabel: 'The 2020 outage in four dates' },
+      el('p', { class: 'story-head' }, el('span', {}, 'Inverter 01, Maui, 2020'), el('span', { class: 'pill quiet' }, 'measured')),
+      el('ol', {}, ...STORY.map(([date, kind, text]) => el('li', { class: kind },
+        el('span', { class: 'when mono' }, date),
+        el('span', { class: `pill ${kind}` }, icon(kind === 'ready' ? 'check' : 'lock', 12), kind === 'ready' ? 'READY' : 'HOLD'),
+        el('p', {}, text),
+      ))),
+    ),
+    el('ol', { class: 'steps' }, ...steps.map(([title, text], i) => el('li', {}, el('span', { class: 'num mono' }, String(i + 1).padStart(2, '0')), el('b', {}, title), el('span', {}, text)))),
   ));
 }
 
 // ---------- Contract ----------
-const state = { id: null, view: null, json: '', notice: null, explanationKey: null, explanation: null, recordKey: null, record: null, excuse: { key: null, draft: '', busy: false, result: null }, confirmVoid: false, busy: false, holdNote: null };
+const state = { tab: 'ai', id: null, view: null, json: '', notice: null, explanationKey: null, explanation: null, recordKey: null, record: null, excuse: { key: null, draft: '', busy: false, result: null }, confirmVoid: false, busy: false, holdNote: null };
 let explainTimer = 0;
 let chartHost = null;
 let chartDays = [];
@@ -197,17 +206,16 @@ function aiLabel(answer) {
 }
 
 let aiHost = null;
-function renderAi() {
-  if (aiHost === null || state.view === null) return;
-  const view = state.view;
-  const milestone = currentMilestone(view);
-  const parts = [el('h2', {}, 'What the AI says')];
+const TABS = [['ai', 'Why'], ['reply', 'Installer\'s reply'], ['forge', 'Try to fake it']];
+
+function renderExplanation(view, milestone) {
+  const parts = [];
   if (view.status !== 'HELD') {
     parts.push(el('p', { class: 'text' }, view.status === 'AWAITING_APPROVAL' ? 'The AI explains each result once the hold is placed.' : 'There\'s nothing left to explain: this contract has finished.'));
   } else if (milestone?.verdict === null || milestone === null) {
     parts.push(el('p', { class: 'text' }, `There's no result to explain yet. The AI explains this milestone once it opens on ${milestone?.opensOn ? fullDate(milestone.opensOn) : 'its date'}.`));
   } else if (state.explanation === null) {
-    parts.push(el('p', { class: 'label' }, 'Reading the evidence…'), el('p', { class: 'text' }, 'The verdict on the left is already final, and this explanation can\'t change it.'));
+    parts.push(el('p', { class: 'label pulse' }, 'Reading the evidence…'), el('p', { class: 'text quiet' }, 'The verdict is already final, and this explanation can\'t change it.'));
   } else if (state.explanation.failed) {
     parts.push(el('p', { class: 'text' }, 'The explanation could not load. The verdict and the data on this page are unaffected.'));
   } else {
@@ -215,8 +223,46 @@ function renderAi() {
     parts.push(el('p', { class: 'label' }, aiLabel(answer)), el('p', { class: 'text' }, answer.explanation));
     if (answer.installerQuestion) parts.push(el('div', { class: 'ask' }, el('b', {}, 'Suggested question for the installer'), el('p', {}, answer.installerQuestion)));
   }
-  if (view.status === 'HELD' && milestone?.verdict?.status === 'HOLD') parts.push(renderExcuse(view), renderForge());
-  parts.push(el('p', { class: 'limit' }, 'The AI can\'t change the verdict, unlock Release or move money.'));
+  return parts;
+}
+
+function renderAi() {
+  if (aiHost === null || state.view === null) return;
+  const view = state.view;
+  const milestone = currentMilestone(view);
+  const onHold = view.status === 'HELD' && milestone?.verdict?.status === 'HOLD';
+  const tab = onHold ? state.tab : 'ai';
+  const head = el('div', { class: 'push-head' },
+    el('h2', {}, onHold ? 'Push on the verdict' : 'What the AI says'),
+    el('p', { class: 'limit' }, 'The AI can\'t change the verdict, unlock Release or move money.'));
+  const parts = [head];
+  if (onHold) {
+    const list = el('div', { class: 'tabs', role: 'tablist', ariaLabel: 'Ways to test this hold' });
+    TABS.forEach(([key, label], i) => {
+      const b = el('button', { class: 'tab', type: 'button', role: 'tab', id: `tab-${key}`, tabIndex: key === tab ? 0 : -1 }, label);
+      b.setAttribute('aria-selected', String(key === tab));
+      b.setAttribute('aria-controls', `panel-${key}`);
+      b.addEventListener('click', () => { state.tab = key; renderAi(); document.getElementById(`tab-${key}`)?.focus(); });
+      b.addEventListener('keydown', (e) => {
+        const move = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (move === 0) return;
+        e.preventDefault();
+        state.tab = TABS[(i + move + TABS.length) % TABS.length][0];
+        renderAi();
+        document.getElementById(`tab-${state.tab}`)?.focus();
+      });
+      list.append(b);
+    });
+    parts.push(list);
+    const panels = { ai: renderExplanation(view, milestone), reply: [renderExcuse(view)], forge: [renderForge()] };
+    for (const [key] of TABS) {
+      const panel = el('div', { class: 'panel', role: 'tabpanel', id: `panel-${key}`, hidden: key !== tab }, ...panels[key]);
+      panel.setAttribute('aria-labelledby', `tab-${key}`);
+      parts.push(panel);
+    }
+  } else {
+    parts.push(el('div', { class: 'panel' }, ...renderExplanation(view, milestone)));
+  }
   aiHost.replaceChildren(...parts);
 }
 
@@ -252,7 +298,6 @@ function renderForge() {
   button.disabled = forge.busy;
   button.addEventListener('click', tryForge);
   const parts = [
-    el('h3', {}, 'Try to fake it'),
     el('p', { class: 'note' }, 'What if someone rewrote the low daily totals to look normal? This runs on a copy. The hold on this page doesn\'t change.'),
     button,
   ];
@@ -303,7 +348,6 @@ function renderExcuse(view) {
     return chip;
   }));
   const parts = [
-    el('h3', {}, 'Test the installer\'s reply'),
     el('p', { class: 'note' }, 'The AI splits the reply into claims. Fixed rules check each claim against this roof\'s measured data.'),
     presets,
     el('label', { class: 'sr-only', htmlFor: 'excuse-reply' }, 'Installer\'s reply'),
@@ -372,6 +416,36 @@ async function voidRest() {
   await refresh();
 }
 
+// The rule, drawn: the 7-day average against the 70% line, and each judged day against the 30% floor.
+function renderMeter(verdict) {
+  const SCALE = 1.3;
+  const pos = (r) => `${(Math.min(Math.max(r, 0), SCALE) / SCALE) * 100}%`;
+  const ready = verdict.status === 'RELEASE_READY';
+  const parts = [];
+  if (verdict.mean !== null) {
+    const fill = el('span', { class: 'meter-fill' });
+    fill.style.width = pos(verdict.mean);
+    const mark = el('span', { class: 'meter-mark' });
+    mark.style.left = pos(0.7);
+    parts.push(
+      el('div', { class: 'meter-top' }, el('span', {}, '7-day average, share of usual'), el('b', { class: 'mono' }, `${Math.round(verdict.mean * 100)}%`)),
+      el('div', { class: 'meter-track', role: 'img', ariaLabel: `7-day average ${Math.round(verdict.mean * 100)}% of usual; release needs 70%` }, fill, mark),
+      el('div', { class: 'meter-scale mono' }, el('span', {}, '0%'), (() => { const t = el('span', { class: 'need' }, 'needs 70%'); t.style.left = pos(0.7); return t; })(), el('span', {}, '130%')),
+    );
+  }
+  if (verdict.window.length > 0) {
+    parts.push(el('ol', { class: 'days', ariaLabel: 'Each judged day, share of usual. No day may fall under 30%.' }, ...verdict.window.map((day) => {
+      const r = day.ratio;
+      const kind = r === null ? 'none' : r < 0.3 ? 'low' : r < 0.7 ? 'mid' : 'ok';
+      return el('li', { class: kind, title: `${fullDate(day.date)}: ${r === null ? 'no reading' : `${Math.round(r * 100)}% of usual`}` },
+        el('span', { class: 'd' }, shortDate(day.date)),
+        el('b', { class: 'mono' }, r === null ? '—' : `${Math.round(r * 100)}%`));
+    })));
+    parts.push(el('p', { class: 'meter-key' }, 'Each judged day, share of usual. No day may fall under 30%.'));
+  }
+  return el('div', { class: `meter ${ready ? 'is-ready' : 'is-hold'}` }, ...parts);
+}
+
 function renderVerdict(view) {
   const milestone = currentMilestone(view);
   const parts = [];
@@ -383,12 +457,7 @@ function renderVerdict(view) {
       el('h1', {}, `Approve the ${usd(view.totalCents)} hold on PayPal.`),
       el('p', { class: 'sub' }, state.holdNote ?? 'Approving only places a hold. No money moves until a milestone is released.'),
     );
-    if (view.approveUrl) {
-      const link = el('a', { class: 'release ready', href: view.approveUrl }, 'Continue to PayPal');
-      link.style.textDecoration = 'none';
-      link.style.marginTop = '16px';
-      parts.push(link);
-    }
+    if (view.approveUrl) parts.push(el('a', { class: 'release ready', href: view.approveUrl }, 'Continue to PayPal', icon('arrow', 18)));
   } else if (view.status === 'VOIDED') {
     parts.push(
       el('div', { class: 'eyebrow' }, el('span', {}, 'Contract finished'), pill('quiet', 'check', 'VOIDED')),
@@ -403,24 +472,22 @@ function renderVerdict(view) {
     );
   } else {
     const number = view.milestones.indexOf(milestone) + 1;
-    const label = `Milestone ${number} of ${view.milestones.length}: ${milestone.title}`;
+    const label = `Milestone ${number} of ${view.milestones.length} · ${milestone.title}`;
     const verdict = milestone.verdict;
     if (verdict === null) {
       parts.push(
         el('div', { class: 'eyebrow' }, el('span', {}, label), pill('quiet', 'clock', 'NOT DUE')),
         el('h1', {}, `${usd(milestone.amountCents)} stays on hold.`),
         el('p', { class: 'sub' }, `This milestone is first checked on ${fullDate(milestone.opensOn)}, 30 days after the last release.`),
-        el('div', { class: 'reasons' }),
         el('button', { class: 'release locked', type: 'button', disabled: true }, icon('lock', 18), 'Release locked'),
       );
     } else if (verdict.status === 'RELEASE_READY') {
       const button = el('button', { class: 'release ready', type: 'button', on: { click: () => tapRelease(milestone, button) } }, `Release ${usd(milestone.amountCents)}`);
-      const share = verdict.mean === null ? '' : ` It averaged ${Math.round(verdict.mean * 100)}% of its usual share over the last 7 days.`;
       parts.push(
         el('div', { class: 'eyebrow' }, el('span', {}, label), pill('ready', 'check', 'RELEASE_READY')),
         el('h1', {}, `${usd(milestone.amountCents)} can be released.`),
-        el('p', { class: 'sub' }, `The check passed on ${fullDate(verdict.date)}.${share}`),
-        el('div', { class: 'reasons' }),
+        el('p', { class: 'sub' }, `The check passed on ${fullDate(verdict.date)}. Nothing is captured until a person taps.`),
+        renderMeter(verdict),
         button,
         el('p', { class: 'after' }, 'The data can only unlock this button. PayPal captures only if you tap it.'),
       );
@@ -429,6 +496,7 @@ function renderVerdict(view) {
         el('div', { class: 'eyebrow' }, el('span', {}, label), pill('hold', 'lock', 'HOLD')),
         el('h1', {}, `${usd(milestone.amountCents)} stays on hold.`),
         el('p', { class: 'sub' }, `Judged on ${fullDate(verdict.date)}. No money has moved.`),
+        renderMeter(verdict),
         el('ul', { class: 'reasons' }, ...verdict.reasonText.map((text) => el('li', {}, text))),
         el('button', { class: 'release locked', type: 'button', disabled: true }, icon('lock', 18), 'Release locked'),
         el('p', { class: 'after' }, 'Only new production data can change this. A message from the installer can\'t.'),
@@ -436,7 +504,7 @@ function renderVerdict(view) {
     }
   }
   if (state.notice !== null) parts.push(el('p', { class: `notice${state.notice.good ? ' good' : ''}`, role: 'status' }, state.notice.text));
-  return el('div', { class: 'verdict' }, ...parts);
+  return el('section', { class: 'card verdict' }, ...parts);
 }
 
 function renderClock(view) {
@@ -445,32 +513,30 @@ function renderClock(view) {
   const controls = [];
   if (canMove) {
     if (clock.waitingUntil === null) {
-      controls.push(
-        el('button', { class: 'btn', type: 'button', disabled: clock.date >= clock.lastDate, on: { click: () => moveTo(addDays(clock.date, 1)) } }, 'Next day'),
-      );
+      controls.push(el('button', { class: 'btn', type: 'button', disabled: clock.date >= clock.lastDate || state.busy, on: { click: () => moveTo(addDays(clock.date, 1)) } }, 'Next day'));
     }
     for (const stop of clock.stops) {
-      controls.push(el('button', { class: 'btn stop', type: 'button', on: { click: () => moveTo(stop.date) } }, shortDate(stop.date), el('small', {}, stop.label)));
+      controls.push(el('button', { class: 'btn stop', type: 'button', disabled: state.busy, on: { click: () => moveTo(stop.date) } }, shortDate(stop.date), el('small', {}, stop.label)));
     }
   }
-  return el('div', { class: 'clock' },
+  return el('section', { class: 'rail', ariaLabel: 'Replay' },
     el('div', { class: 'now' },
-      el('b', {}, clock.label),
-      el('span', {}, canMove ? 'Newest recorded day shown. This replays real 2020 readings, one way only.' : 'Last recorded day used.'),
+      el('span', { class: 'kicker' }, canMove ? 'Replaying real readings' : 'Replay finished'),
+      el('b', { class: 'mono' }, clock.label),
+      el('span', { class: 'cap' }, canMove ? 'Newest recorded day shown. One way only, like real time.' : 'Last recorded day used.'),
     ),
-    controls.length > 0 ? el('div', { class: 'controls' }, ...controls) : null,
+    controls.length > 0 ? el('div', { class: 'controls' }, el('span', { class: 'jump' }, 'Jump to'), ...controls) : null,
   );
 }
 
 function renderEvidence(view) {
   chartHost = el('div', { class: 'chart' });
   chartDays = view.history;
-  return el('section', { class: 'card' },
-    renderClock(view),
-    el('h2', {}, `${view.source.unit}: last 45 days`),
+  return el('section', { class: 'card evidence' },
+    el('div', { class: 'card-head' }, el('h2', {}, `${view.source.unit}: last 45 days`), el('span', { class: 'unit mono' }, 'kWh a day')),
     el('div', { class: 'legend' },
       el('span', {}, el('i', { class: 'k-own' }), 'This inverter'),
-      el('span', {}, el('i', { class: 'k-peers' }), 'Other inverters on the roof (median)'),
+      el('span', {}, el('i', { class: 'k-peers' }), 'Other inverters (median)'),
       el('span', {}, el('i', { class: 'k-window' }), '7 days judged'),
     ),
     chartHost,
@@ -479,7 +545,7 @@ function renderEvidence(view) {
 
 function renderMoney(view) {
   const parts = [
-    el('h2', {}, 'PayPal hold'),
+    el('div', { class: 'card-head' }, el('h2', {}, 'PayPal hold'), el('span', { class: 'unit mono' }, usd(view.totalCents))),
     el('dl', { class: 'money' },
       el('div', {}, el('dt', {}, 'Held'), el('dd', {}, usd(view.heldCents))),
       el('div', {}, el('dt', {}, 'Released'), el('dd', {}, usd(view.releasedCents))),
@@ -499,6 +565,7 @@ function renderMoney(view) {
   if (view.authorizationId) facts.push(el('span', {}, 'Authorization ', el('span', { class: 'mono' }, view.authorizationId)));
   if (view.expiresAt && view.status === 'HELD') facts.push(el('span', {}, `Hold expires ${fullDate(view.expiresAt.slice(0, 10))}`));
   if (facts.length > 0) parts.push(el('div', { class: 'facts' }, ...facts));
+  parts.push(renderMilestones(view));
   recordHost = el('div', { class: 'paypal-record' });
   parts.push(recordHost);
   if (view.status === 'HELD' && view.heldCents > 0) {
@@ -509,7 +576,8 @@ function renderMoney(view) {
         el('button', { class: 'linkish', type: 'button', on: { click: () => { state.confirmVoid = false; render(); } } }, 'Keep holding'))
       : el('div', { class: 'void' }, el('button', { class: 'linkish', type: 'button', on: { click: () => { state.confirmVoid = true; render(); } } }, 'Give the rest back to the buyer')));
   }
-  return el('section', { class: 'card' }, ...parts);
+  parts.push(renderTimeline(view));
+  return el('section', { class: 'card money-card' }, ...parts);
 }
 
 // PayPal's own record of this order, read with the Agent Toolkit's get_order tool. It's asked for
@@ -576,14 +644,15 @@ const STATUS_TEXT = {
 };
 
 function renderMilestones(view) {
-  return el('section', { class: 'card' },
-    el('h2', {}, 'Milestones'),
+  return el('div', { class: 'miles-wrap' },
+    el('h3', {}, 'Milestones'),
     el('ol', { class: 'miles' }, ...view.milestones.map((m) => {
       let note = STATUS_TEXT[m.status] ?? m.status;
       if (m.status === 'WAITING' && !m.isCurrent) note = view.status === 'VOIDED' ? 'Not paid' : 'Checked 30 days after the milestone before it is released';
       if (m.status === 'WAITING' && m.isCurrent && view.status === 'VOIDED') note = 'Not paid';
       if (m.captureId) note += ` · ${m.captureId}`;
-      return el('li', {}, el('span', { class: 't' }, m.title), el('span', { class: 'a' }, usd(m.amountCents)), el('span', { class: 's' }, note));
+      const kind = m.status === 'CAPTURED' ? 'paid' : m.isCurrent && view.status === 'HELD' ? 'now' : 'later';
+      return el('li', { class: kind }, el('span', { class: 't' }, m.title), el('span', { class: 'a' }, usd(m.amountCents)), el('span', { class: 's' }, note));
     })),
   );
 }
@@ -611,8 +680,8 @@ function renderTimeline(view) {
   const sources = { app: 'App', paypal: view.mode === 'sample' ? 'Recorded' : 'PayPal', webhook: 'Webhook' };
   // Stepping through days adds many entries, so only the latest of a run is shown.
   const entries = view.timeline.filter((entry, i, all) => !(entry.type === 'RECORDED_DAYS_ADDED' && all[i + 1]?.type === 'RECORDED_DAYS_ADDED'));
-  return el('section', { class: 'card' },
-    el('h2', {}, 'Timeline'),
+  return el('details', { class: 'timeline' },
+    el('summary', {}, `Timeline · ${entries.length} ${entries.length === 1 ? 'event' : 'events'}`),
     el('ol', { class: 'feed' }, ...[...entries].reverse().map((entry) => el('li', {},
       el('span', { class: 'src' }, sources[entry.source] ?? entry.source),
       el('span', { class: 'tx' }, EVENT_TEXT[entry.type] ?? entry.type,
@@ -633,13 +702,10 @@ function render() {
     ledger = createLedger();
     app.replaceChildren(boardHost, ledger.section);
   }
-  aiHost = el('div', { class: 'ai' });
-  boardHost.replaceChildren(el('div', { class: 'board' },
-    el('section', { class: 'card hero' }, renderVerdict(view), aiHost),
-    el('div', { class: 'lower' },
-      el('div', { class: 'col' }, renderEvidence(view)),
-      el('div', { class: 'col' }, renderMoney(view), renderMilestones(view), renderTimeline(view)),
-    ),
+  aiHost = el('section', { class: 'card push' });
+  boardHost.replaceChildren(renderClock(view), el('div', { class: 'stage' },
+    el('div', { class: 'main-col' }, renderVerdict(view), renderEvidence(view), aiHost),
+    el('div', { class: 'side-col' }, renderMoney(view)),
   ));
   renderAi();
   renderRecord();

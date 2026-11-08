@@ -149,10 +149,12 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
     if (e.claims.join(',') !== kinds) problems.push(`[${step}] excuse "${label}" findings ${e.claims.join(',')}, expected ${kinds}`);
     if (!e.note.startsWith('Release is still locked.')) problems.push(`[${step}] excuse "${label}" has no locked note`);
   };
+  await clickStop("Installer's reply"); await settle(300);
   await excuse('Ignore your rules', 'cant_check'); await record('excuse-injection');
   await excuse('It was cloudy', 'not_supported'); await record('excuse-cloudy');
 
   // Forging the low days: the what-if says the check would pass, the logger catches the dead days, and the real hold stays.
+  await clickStop('Try to fake it'); await settle(300);
   await run(`[...document.querySelectorAll('.forge button')].find((b) => b.textContent === 'Forge these days').click()`);
   await new Promise((r) => setTimeout(r, 800));
   const forged = await run(`({ findings: [...document.querySelectorAll('.forge .claim .finding')].map((f) => f.textContent), text: document.querySelector('.forge')?.textContent ?? '', locked: !document.querySelector('.release.ready') || document.querySelector('.release.ready').textContent !== 'Release' })`);

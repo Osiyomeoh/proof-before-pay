@@ -1,5 +1,7 @@
 # Proof Before Pay
 
+[![CI](https://github.com/Osiyomeoh/proof-before-pay/actions/workflows/ci.yml/badge.svg)](https://github.com/Osiyomeoh/proof-before-pay/actions/workflows/ci.yml)
+
 A solar buyer shouldn't pay a milestone because an installer says the system works. Here, a PayPal authorization holds each milestone payment, and money is captured only after production data passes a fixed check and a person taps Release. On a real 2020 outage, a pay-after-one-good-day rule would have paid on Oct 23; this check held until Nov 19.
 
 **Live demo:** https://h2uvpaitmh.us-west-2.awsapprunner.com (backup: https://proof-before-pay.onrender.com)
@@ -31,6 +33,7 @@ AG Grid powers the production ledger, which compares the two pay rules day by da
 
 - **The outage:** inverter 01 on a Maui roof logged 0.0 kWh on Oct 9–21, 2020 while the other inverters kept producing. Output returned Oct 22–25, then went back to zero for 18 days.
 - **Across the roof:** over 9 inverters and 13,257 judged days, days our rule paid were followed within 14 days by a day under 30% of usual 7.2% of the time, against 8.7% for the one-good-day rule. Ours held 641 days the other rule paid. Most of the gap comes from one inverter (`spike/SPIKE-FLEET.md`).
+- **Forgery test:** rewriting inverter 01's 40 outage days to normal totals fools the engine. The logger's DC voltage caught 29 of the 40, every day the inverter really made 0 kWh, and missed 11 days with real but smaller output. It raised 0 false alarms across 6,791 real inverter-days (`spike/SPIKE-FAKE.md`).
 - **PayPal sandbox:** a hold captured in two parts, a void after a partial capture, a capture above the hold refused, and a repeated request ID returning the same capture (`spike/sandbox-run-result.json`).
 
 `CLAIMS.md` lists the evidence for each claim, and the claims we won't make.
