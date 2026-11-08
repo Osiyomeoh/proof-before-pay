@@ -142,7 +142,29 @@ async function renderLanding() {
       ),
     ),
     el('ol', { class: 'steps' }, ...steps.map(([title, text], i) => el('li', {}, el('span', { class: 'num mono' }, String(i + 1).padStart(2, '0')), el('b', {}, title), el('span', {}, text)))),
+    renderPeople(),
   ));
+}
+
+// Captions say only what each photo shows. The people in them have nothing to do with this project or the Maui roof.
+const PHOTOS = [
+  ['/img/roof-carry.webp', 'A man in a rain jacket and safety harness carries a solar panel on his back across a wet green metal roof.', 'An installer carries a panel across a metal roof.'],
+  ['/img/roof-panels.webp', 'A technician in a cap and safety harness kneels on a green metal roof beside a row of solar panels.', 'A technician works on a rooftop array.'],
+];
+
+function renderPeople() {
+  return el('section', { class: 'people' },
+    el('div', { class: 'people-copy' },
+      el('h2', {}, 'The work happens on the roof. The money waits for proof.'),
+      el('p', {}, 'When a milestone is due, the installer has already done the work, and the buyer can\'t yet know the system works. Here neither has to take the other\'s word for it. PayPal holds the money, the roof\'s own readings decide when it can move, and a person taps Release.'),
+    ),
+    el('div', { class: 'people-photos' }, ...PHOTOS.map(([src, alt, caption]) => el('figure', { class: 'photo' },
+      // Plain loading: lazy or low-priority photos came out blank in full-page screenshots. Both together are 188 KB.
+      el('img', { src, alt, width: 1200, height: 800 }),
+      el('figcaption', {}, caption),
+    ))),
+    el('p', { class: 'credit' }, 'Photos: Stephen Yang / The Solutions Project, 2016, public domain, via Wikimedia Commons. The people shown aren\'t connected to this project.'),
+  );
 }
 
 // ---------- Contract ----------

@@ -170,10 +170,25 @@ button { font: inherit; }
 .checklist b { display: block; font-weight: 600; }
 .checklist p { color: var(--ink-2); font-size: 15px; }
 
-@media (min-width: 720px) { .steps { grid-template-columns: repeat(2, 1fr); } }
+.people { display: grid; gap: var(--s-5); padding-top: var(--s-4); min-width: 0; }
+.people-copy { min-width: 0; }
+.people h2 { font-size: clamp(26px, 3.4vw, 36px); line-height: 1.12; font-weight: 600; letter-spacing: -0.02em; max-width: 20ch; }
+.people-copy p { font-size: 17px; color: var(--ink-2); max-width: 52ch; margin-top: var(--s-3); }
+.people-photos { display: grid; gap: var(--s-4); min-width: 0; }
+.photo { margin: 0; min-width: 0; }
+.photo img { display: block; width: 100%; height: auto; aspect-ratio: 3 / 2; object-fit: cover; border-radius: var(--r-3); border: 1px solid var(--line); box-shadow: var(--shadow-lift); background: var(--locked); }
+.photo figcaption { margin-top: var(--s-2); font-size: 14px; color: var(--ink-2); }
+.people .credit { font-size: 13px; color: var(--ink-3); max-width: 72ch; }
+
+@media (min-width: 720px) {
+  .steps { grid-template-columns: repeat(2, 1fr); }
+  .people-photos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (min-width: 960px) {
   .landing { grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: start; padding-block: var(--s-7) var(--s-4); column-gap: var(--s-7); }
   .landing .steps { grid-column: 1 / -1; grid-template-columns: repeat(4, 1fr); }
+  .landing .people { grid-column: 1 / -1; grid-template-columns: minmax(0, .8fr) minmax(0, 1.7fr); column-gap: var(--s-6); align-items: center; padding-top: var(--s-6); }
+  .people .credit { grid-column: 1 / -1; }
   .landing.judge { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
 

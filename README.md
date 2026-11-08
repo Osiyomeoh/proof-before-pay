@@ -62,6 +62,8 @@ For the live sandbox, copy `.env.example` to `.env` and add your own PayPal sand
 
 Maui Ocean Center, NREL PVDAQ system 2105. Deline et al. (2021), Photovoltaic Data Acquisition (PVDAQ) Public Datasets, Open Energy Data Initiative, NREL, [doi:10.25984/1846021](https://doi.org/10.25984/1846021), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). Daily totals, medians and shares are worked out from the raw readings.
 
+Landing-page photos: Stephen Yang / The Solutions Project, 2016, public domain, via Wikimedia Commons ([installer carrying a panel](https://commons.wikimedia.org/wiki/File:Technicians_working_on_a_solar_panel_installation_(9235).jpg), [technician on a rooftop array](https://commons.wikimedia.org/wiki/File:Technicians_working_on_a_solar_panel_installation_(9234).jpg)). They're resized to WebP with the metadata removed. The people shown aren't connected to this project.
+
 ## Licence
 
 [MIT](LICENSE)

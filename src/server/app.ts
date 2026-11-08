@@ -68,6 +68,9 @@ const STATIC_FILES: ReadonlyArray<[string, URL, string]> = [
   ['/styles.css', new URL('styles.css', PUBLIC_DIR), 'text/css; charset=utf-8'],
   ['/icon.svg', new URL('icon.svg', PUBLIC_DIR), 'image/svg+xml'],
   ['/hero.svg', new URL('hero.svg', PUBLIC_DIR), 'image/svg+xml'],
+  // Public-domain photos by Stephen Yang / The Solutions Project, via Wikimedia Commons. Credited on the page and in the README.
+  ['/img/roof-carry.webp', new URL('img/roof-carry.webp', PUBLIC_DIR), 'image/webp'],
+  ['/img/roof-panels.webp', new URL('img/roof-panels.webp', PUBLIC_DIR), 'image/webp'],
   ['/fonts/sans-400.woff2', new URL('ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2', FONTS), 'font/woff2'],
   ['/fonts/sans-600.woff2', new URL('ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2', FONTS), 'font/woff2'],
   ['/fonts/mono-400.woff2', new URL('ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2', FONTS), 'font/woff2'],
@@ -77,10 +80,10 @@ const STATIC_FILES: ReadonlyArray<[string, URL, string]> = [
 type StaticFile = { body: Buffer; type: string; br: Buffer | undefined };
 
 // Quality 9: the grid bundle takes 175 ms and 345 KB here. Quality 11 saves 30 KB more and takes 5.9 s, too slow to start on 0.25 vCPU.
-// woff2 is already compressed.
+// woff2 and WebP are already compressed.
 const FILES = new Map(STATIC_FILES.map(([path, file, type]): [string, StaticFile] => {
   const body = readFileSync(file);
-  return [path, { body, type, br: type.startsWith('font/') ? undefined : brotli(body, 9) }];
+  return [path, { body, type, br: type.startsWith('font/') || type === 'image/webp' ? undefined : brotli(body, 9) }];
 }));
 
 // AG Grid adds its styles at runtime and draws icons from data: URLs: https://www.ag-grid.com/javascript-data-grid/security/
