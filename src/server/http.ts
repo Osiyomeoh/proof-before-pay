@@ -12,6 +12,17 @@ export type ServerDeps = {
   verifyWebhook: (headers: WebhookHeaders, rawBody: Buffer) => Promise<WebhookCheck>;
   // Returns true when it handled the request.
   app?: (req: IncomingMessage, res: ServerResponse, path: string) => Promise<boolean>;
+  // One line per webhook outcome, so a real delivery can be seen in the host's logs.
+  log?: (line: string) => void;
+};
+
+// Only called after the signature check passes. Never logs the payload.
+const eventLabel = (event: unknown) => {
+  const field = (key: string) => {
+    const value = typeof event === 'object' && event !== null ? (event as Record<string, unknown>)[key] : undefined;
+    return typeof value === 'string' ? value.replace(/[^\w.-]/g, '').slice(0, 64) : '-';
+  };
+  return `${field('id')} ${field('event_type')}`;
 };
 
 class BodyTooLarge extends Error {}
@@ -72,7 +83,7 @@ const RELEASE_STATUS: Record<string, number> = {
 const VOID_STATUS: Record<string, number> = { NOT_FOUND: 404, NOT_HELD: 409, TAP_REQUIRED: 403, VOIDED: 200, REJECTED: 502, UNKNOWN: 504 };
 
 export function createHandler(deps: ServerDeps): RequestListener {
-  const { payments, verifyWebhook } = deps;
+  const { payments, verifyWebhook, log = () => {} } = deps;
 
   async function route(req: IncomingMessage, res: ServerResponse) {
     const path = new URL(req.url ?? '/', 'http://localhost').pathname;
@@ -80,14 +91,20 @@ export function createHandler(deps: ServerDeps): RequestListener {
     if (req.method === 'POST' && path === '/webhooks/paypal') {
       const raw = await readBody(req);
       const check = await verifyWebhook(req.headers, raw);
-      if (!check.ok) return send(res, check.reason === 'NOT_CONFIGURED' ? 503 : 401, { error: check.reason });
+      if (!check.ok) {
+        log(`webhook rejected: ${check.reason}`);
+        return send(res, check.reason === 'NOT_CONFIGURED' ? 503 : 401, { error: check.reason });
+      }
       let event: unknown;
       try {
         event = JSON.parse(raw.toString('utf8'));
       } catch {
+        log('webhook rejected: BAD_JSON');
         return send(res, 400, { error: 'BAD_JSON' });
       }
-      return send(res, 200, payments.applyWebhook(event));
+      const result = payments.applyWebhook(event);
+      log(`webhook verified: ${eventLabel(event)} ${result.reason}`);
+      return send(res, 200, result);
     }
 
     const contract = path.match(/^\/api\/contracts\/([^/]+)$/);

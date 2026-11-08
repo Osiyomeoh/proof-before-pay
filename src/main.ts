@@ -58,7 +58,7 @@ const app = createApp({ payments, proof, fleet, lastDate, mode: sample ? 'sample
 const verifyWebhook = createWebhookVerifier({ webhookId: process.env['PAYPAL_WEBHOOK_ID'] });
 
 // Containers must listen on 0.0.0.0, for App Runner (the primary host) and Render (the backup): https://render.com/docs/web-services
-createServer(createHandler({ payments, verifyWebhook, app })).listen(port, '0.0.0.0', () => {
+createServer(createHandler({ payments, verifyWebhook, app, log: (line) => console.log(line) })).listen(port, '0.0.0.0', () => {
   console.log(`Proof Before Pay on ${publicUrl} (${sample ? 'sample mode' : 'PayPal sandbox'})`);
   // Built once in the background, so the first visitor doesn't wait for it.
   void ledger.through(lastDate);

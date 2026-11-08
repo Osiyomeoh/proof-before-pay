@@ -17,7 +17,8 @@ let status: Verdict['status'] = 'HOLD';
 const proof: Proof = () => ({ status } as unknown as Verdict);
 const payments = createPayments({ paypal: createPayPalClient({ clientId: 'a', clientSecret: 'b', fetch: fake.fetch }), proof });
 const verifyWebhook = createWebhookVerifier({ webhookId: WEBHOOK_ID, fetch: certFetch(signer.cert).fetch });
-const server = createServer(createHandler({ payments, verifyWebhook }));
+const logs: string[] = [];
+const server = createServer(createHandler({ payments, verifyWebhook, log: (line) => logs.push(line) }));
 let base = '';
 
 before(async () => {
@@ -104,6 +105,7 @@ test('webhook over HTTP: odd spacing survives, because the raw bytes are what ge
   const res = await post('/webhooks/paypal', raw, signer.headers(Buffer.from(raw)));
   assert.equal(res.status, 200);
   assert.equal(contract.milestones[0]?.status, 'REFUNDED');
+  assert.equal(logs.at(-1), 'webhook verified: WH-HTTP PAYMENT.CAPTURE.REFUNDED APPLIED');
 });
 
 test('webhook over HTTP: a bad signature gets a 401 and changes nothing', async () => {
@@ -113,6 +115,7 @@ test('webhook over HTTP: a bad signature gets a 401 and changes nothing', async 
   const res = await post('/webhooks/paypal', raw, signer.headers(Buffer.from(`${raw} `)));
   assert.equal(res.status, 401);
   assert.equal(contract.status, 'HELD');
+  assert.equal(logs.at(-1), 'webhook rejected: BAD_SIGNATURE');
 });
 
 test('webhook over HTTP: with no webhook ID set, events get a 503 and change nothing', async () => {
