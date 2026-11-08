@@ -25,7 +25,7 @@ export interface Rules {
   readonly minFleetYield: number;
 }
 
-// Starting values. The 7-day mean, floor and history come from spike/SPIKE-PHYSICS.md.
+// Starting values. The 7-day mean, floor and history were set on the real Maui outage (see test/engine.test.ts).
 // The three guards are measured by `npm run eval`.
 export const DEFAULT_RULES: Rules = {
   windowDays: 7,

@@ -3,7 +3,7 @@
 // with RECORDED so it can't be mistaken for a real PayPal record. No money exists here.
 import type { Authorization, Capture, PayPalClient } from './client.ts';
 
-const HOLD_DAYS = 29; // measured in spike/SPIKE-PAYPAL.md: expiry about 29 days after creation
+const HOLD_DAYS = 29; // measured on the real sandbox: expiry about 29 days after creation
 
 export function createRecordedPayPal(now: () => number = Date.now): PayPalClient {
   let next = 0;

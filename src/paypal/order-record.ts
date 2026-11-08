@@ -131,7 +131,7 @@ export async function loadPayPalToolkit(clientId: string, clientSecret: string):
 }
 
 // Sample mode: a reply in get_order's shape, built from this app's own state and labelled recorded.
-// Statuses are the ones the real sandbox returned (spike/SPIKE-PAYPAL.md, spike/sandbox-run-result.json,
+// Statuses are the ones the real sandbox returned (spike/sandbox-run-result.json,
 // and a toolkit read on 2026-11-06): order COMPLETED once authorized; authorization CREATED,
 // PARTIALLY_CAPTURED, CAPTURED or VOIDED; capture COMPLETED.
 const CAPTURE_STATUS: Partial<Record<MilestoneStatus, string>> = { CAPTURED: 'COMPLETED', PENDING: 'PENDING', REFUNDED: 'REFUNDED', REVERSED: 'REVERSED' };

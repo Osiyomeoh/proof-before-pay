@@ -101,7 +101,7 @@ async function renderJudge() {
   ));
 }
 
-// Every line here is a measured fact from the replay (see CLAIMS.md), not an illustration.
+// Every line here is a measured fact from the replay, not an illustration.
 const STORY = [
   ['Oct 9', 'hold', 'Inverter 01 drops to 0 kWh. The other inverters on the roof keep producing.'],
   ['Oct 22', 'hold', 'Output comes back for four days. One good day isn\'t enough here.'],

@@ -118,7 +118,7 @@ export function buildEvidence(verdict: Verdict) {
 const NUMBER = /\d+(?:[.,]\d+)*/g;
 const toNumbers = (text: string) => (text.match(NUMBER) ?? []).map((part) => Number(part.replaceAll(',', '')));
 
-// Words a model might use for a cause. The Maui outage's cause is unknown (see CLAIMS.md).
+// Words a model might use for a cause. The Maui outage's cause is unknown.
 const CAUSE = /\b(fail(ed|ure|ing)?|fault(y|s)?|broken|defect(ive)?|malfunction\w*|damaged?|wiring|shading|soiling|dirty|tripped)\b/i;
 const WRONG_PEERS = /\b(nearby|neighbou?rs?|neighbou?ring)\b/i;
 const HOME = /\b(home|house)\b/i;

@@ -1,4 +1,4 @@
-// The one-hour fake-data test. Run: node spike/forge-test.ts. Results in spike/SPIKE-FAKE.md.
+// The one-hour fake-data test. Run: node spike/forge-test.ts. Numbers are in the README.
 import { judge } from '../src/proof/engine.ts';
 import { loadMauiLogger } from '../src/proof/claims.ts';
 import { MAUI_INVERTERS, loadMauiFleet, commonDates } from '../src/proof/maui.ts';

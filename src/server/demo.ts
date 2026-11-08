@@ -17,7 +17,7 @@ export const DEMO_MILESTONES: readonly NewMilestone[] = [
   { title: `Still producing ${DAYS_BETWEEN_MILESTONES} days later`, amountCents: 6000, unitId: DEMO_UNIT, proofDate: DEMO_START },
 ];
 
-// Points in the real outage worth stopping at. Dates come from spike/SPIKE-PHYSICS.md and test/engine.test.ts.
+// Points in the real outage worth stopping at. Dates are tested in test/engine.test.ts.
 export const STORY_STOPS = [
   { date: '2020-10-22', label: 'Output returns' },
   { date: '2020-10-26', label: 'Back to zero' },

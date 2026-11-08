@@ -6,3 +6,11 @@ spike/paypal-spike-log.jsonl
 spike/sandbox-run-state.json
 WIN-DECISION.md
 .shots/
+CHECKLIST.md
+CLAIMS.md
+PLAN.md
+spike/*.md
+spike/bedrock-spike.ts
+spike/compare.py
+spike/paypal-spike.mjs
+spike/peer.py

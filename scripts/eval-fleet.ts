@@ -2,7 +2,7 @@
 // Each inverter is judged against the other inverters, on every day all of them reported.
 // There is no fault log for this site, so this is not accuracy. It counts how often each rule
 // would have paid on a day that was followed, within 14 days, by a day under the 30% floor.
-// Two inverters are left out (see spike/SPIKE-FLEET.md). inv06: in all 218,543 of its raw rows the
+// Two inverters are left out. inv06: in all 218,543 of its raw rows the
 // "AC kWh" column equals its AC voltage divided by 1000, so it has no energy reading. inv11: in
 // 236,874 of the 236,906 minutes it shares with inv04, all five values match inv04's, so it isn't
 // an independent peer and would count inv04 twice.

@@ -32,18 +32,16 @@ AG Grid powers the production ledger, which compares the two pay rules day by da
 ## What's measured
 
 - **The outage:** inverter 01 on a Maui roof logged 0.0 kWh on Oct 9–21, 2020 while the other inverters kept producing. Output returned Oct 22–25, then went back to zero for 18 days.
-- **Across the roof:** over 9 inverters and 13,257 judged days, days our rule paid were followed within 14 days by a day under 30% of usual 7.2% of the time, against 8.7% for the one-good-day rule. Ours held 641 days the other rule paid. Most of the gap comes from one inverter (`spike/SPIKE-FLEET.md`).
-- **Forgery test:** rewriting inverter 01's 40 outage days to normal totals fools the engine. The logger's DC voltage caught 29 of the 40, every day the inverter really made 0 kWh, and missed 11 days with real but smaller output. It raised 0 false alarms across 6,791 real inverter-days (`spike/SPIKE-FAKE.md`).
+- **Across the roof:** over 9 inverters and 13,257 judged days, days our rule paid were followed within 14 days by a day under 30% of usual 7.2% of the time, against 8.7% for the one-good-day rule. Ours held 641 days the other rule paid. Most of the gap comes from one inverter (`npm run eval:fleet`, results in `spike/eval-fleet.json`).
+- **Forgery test:** rewriting inverter 01's 40 outage days to normal totals fools the engine. The logger's DC voltage caught 29 of the 40, every day the inverter really made 0 kWh, and missed 11 days with real but smaller output. It raised 0 false alarms across 6,791 real inverter-days (`node spike/forge-test.ts`).
 - **PayPal sandbox:** a hold captured in two parts, a void after a partial capture, a capture above the hold refused, and a repeated request ID returning the same capture (`spike/sandbox-run-result.json`).
-
-`CLAIMS.md` lists the evidence for each claim, and the claims we won't make.
 
 ## Limits
 
 - The data is a 110 kW commercial roof, not a home. The check needs 30+ days of history and comparable inverters, so it **doesn't yet work on a new home install**.
 - There's no fault log for this site, so these figures aren't accuracy. The cause of the outage is unknown, and the thresholds were chosen after looking at this outage.
 - The dataset's kWh figures look too high in absolute terms, so verdicts use shares, not kWh.
-- Forging data gets harder, not impossible: the logger check catches a forged day only when the DC side was dead, and someone who rewrites every raw reading would pass (`spike/SPIKE-FAKE.md`).
+- Forging data gets harder, not impossible: the logger check catches a forged day only when the DC side was dead, and someone who rewrites every raw reading would pass.
 - The token can't prove who tapped. In the demo, any client can move a contract forward through recorded days; it can't go back or supply a verdict. A real product would use today's date.
 - Not yet run: reauthorizing a hold on the sandbox, and a real PayPal webhook event on the deployed URL. Signature checks are tested with a test certificate.
 

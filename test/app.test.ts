@@ -119,7 +119,7 @@ test('the landing page claim holds for inverter 01: one good day passes, then th
   assert.ok((oct23?.ratio ?? 0) >= 0.7, 'a one-good-day rule would pay on Oct 23');
   assert.equal(judge(fleet, '01', '2020-10-23').status, 'HOLD');
 
-  // Nov 5 and 6 have no daily total. Their raw rows show zero peak power (spike/SPIKE-PHYSICS.md).
+  // Nov 5 and 6 have no daily total. Their raw rows show zero peak power.
   const after = commonDates(fleet).filter((date) => date >= '2020-10-26' && date <= '2020-11-12');
   assert.equal(after.length, 16);
   for (const date of after) assert.equal(judge(fleet, '01', date).window.at(-1)?.kwh, 0, date);

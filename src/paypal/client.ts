@@ -1,5 +1,5 @@
 // PayPal REST client. The host is fixed to the sandbox, and no config can point it at live.
-// Bodies and response handling follow spike/SPIKE-PAYPAL.md and the v2 Orders and Payments docs.
+// Bodies and response handling follow the v2 Orders and Payments docs and a real sandbox run (spike/sandbox-run-result.json).
 
 export const SANDBOX_API = 'https://api-m.sandbox.paypal.com';
 const TIMEOUT_MS = 20_000;

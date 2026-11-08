@@ -78,7 +78,7 @@ test('a contract with no milestones, or a bad amount, is refused before calling 
   assert.equal(fake.calls.length, 0);
 });
 
-// The rule from PLAN.md, on the real outage and the real engine.
+// The pay rule, on the real outage and the real engine.
 test('real data: the outage keeps Release locked, and no capture reaches PayPal', async () => {
   const fleet = loadMauiFleet();
   const proof: Proof = (unitId, date) => judge(fleet, unitId, date);

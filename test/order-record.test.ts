@@ -1,5 +1,5 @@
 // PayPal's own record, read with the Agent Toolkit's get_order tool. These tests use a stand-in
-// toolkit, so they make no network call. The real read on the sandbox is in spike/SPIKE-TOOLKIT.md.
+// toolkit, so they make no network call. The real read runs on the sandbox in live mode.
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
