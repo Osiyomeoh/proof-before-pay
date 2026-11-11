@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
+import { createAgent } from '../src/ai/agent.ts';
 import { createRecordedExplainer } from '../src/ai/recorded.ts';
 import { createExcuseChecker, createRecordedSplitter } from '../src/ai/excuse.ts';
 import { loadMauiLogger } from '../src/proof/claims.ts';
@@ -238,6 +239,8 @@ const app = createApp({
   orderRecord: async (c) => ({ record: recordedOrder(c), readAt: '2026-11-08T00:00:00.000Z' }),
   checkExcuse: createExcuseChecker(createRecordedSplitter([]), fleet, logger),
   forgeCheck: (v) => forgeryTest(v, fleet, logger),
+  // A metered week has no verdict, so the agent is never asked. With no model it would only make plain runs.
+  agent: createAgent({ create: null, model: '' }),
 });
 const server = createServer(createHandler({ payments, verifyWebhook: async () => ({ ok: false, reason: 'NOT_CONFIGURED' }), app }));
 let base = '';

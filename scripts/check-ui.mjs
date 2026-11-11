@@ -48,10 +48,12 @@ let lastActivity = Date.now();
 let expected404 = false;
 let viewRequests = 0;
 let explainRequests = 0;
+let agentRequests = 0;
+let writeRequests = 0;
 ws.addEventListener('message', ({ data }) => {
   const m = JSON.parse(data);
   if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); return; }
-  if (m.method === 'Network.requestWillBeSent') { inFlight.set(m.params.requestId, m.params.request.url); lastActivity = Date.now(); if (m.params.request.url.endsWith('/view')) viewRequests += 1; if (m.params.request.url.endsWith('/explanation')) explainRequests += 1; }
+  if (m.method === 'Network.requestWillBeSent') { inFlight.set(m.params.requestId, m.params.request.url); lastActivity = Date.now(); if (m.params.request.url.endsWith('/view')) viewRequests += 1; if (m.params.request.url.endsWith('/explanation')) explainRequests += 1; if (m.params.request.url.endsWith('/agent')) agentRequests += 1; if (m.params.request.method !== 'GET') writeRequests += 1; }
   if (m.method === 'Fetch.requestPaused') send('Fetch.fulfillRequest', { requestId: m.params.requestId, responseCode: 404, responseHeaders: [{ name: 'Content-Type', value: 'application/json' }], body: Buffer.from('{"error":"NOT_FOUND"}').toString('base64') });
   if (m.method === 'Network.loadingFinished' || m.method === 'Network.loadingFailed') { inFlight.delete(m.params.requestId); lastActivity = Date.now(); }
   if (m.method === 'Runtime.exceptionThrown') problems.push(`[${step}] exception: ${m.params.exceptionDetails.exception?.description ?? m.params.exceptionDetails.text}`);
@@ -66,6 +68,9 @@ const run = async (expression) => {
   return r.result?.result?.value;
 };
 await send('Runtime.enable'); await send('Log.enable'); await send('Page.enable'); await send('Network.enable');
+// The agent's Copy button writes to the clipboard, which needs a focused page and the permission.
+await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+await send('Browser.grantPermissions', { origin: new URL(BASE).origin, permissions: ['clipboardReadWrite', 'clipboardSanitizedWrite'] });
 
 // Waits at least `ms` for animation, then until the network has been quiet for 300 ms, so a slow host can't fail a step.
 const timings = [];
@@ -137,6 +142,21 @@ async function checkLedger(label, expectTop) {
 }
 
 // PayPal's own record (the Agent Toolkit's get_order read) has to agree with the page at each money step.
+// The AI agent card: which tools it called, what it proposes, and whether it drafted a message. It reads only, so the
+// first three steps are always the same reads, and a ready day still leaves Release for the person to press.
+const readAgent = `(() => { const a = document.querySelector('.agent'); if (!a) return null; return { label: a.querySelector('.label')?.textContent ?? '', steps: [...a.querySelectorAll('.tool-steps li')].map((li) => li.querySelector('code').textContent + (li.classList.contains('ok') ? '' : ':failed')), next: a.querySelector('.proposal b')?.textContent ?? '', draft: a.querySelector('.ask .draft')?.textContent ?? '', copy: !!a.querySelector('.copy-row button') }; })()`;
+async function expectAgent(next, drafted) {
+  if (!(await waitFor(`!!document.querySelector('.agent .proposal')`, 10_000, 'the agent never answered'))) return null;
+  const agent = await run(readAgent);
+  if (!agent.label.startsWith('Recorded run of claude-')) problems.push(`[${step}] agent label "${agent.label}"`);
+  // The saved runs read all three; the model picked the order, so only check that each read is there.
+  if (!['read_verdict', 'read_days', 'read_paypal_record'].every((tool) => agent.steps.includes(tool))) problems.push(`[${step}] agent steps ${agent.steps.join(',')}`);
+  if (agent.next !== `Proposed next step: ${next}`) problems.push(`[${step}] agent proposes "${agent.next}", expected "${next}"`);
+  if ((agent.draft !== '') !== drafted || agent.copy !== drafted) problems.push(`[${step}] agent draft shown: ${agent.draft !== ''}, expected ${drafted}`);
+  if (agent.steps.some((s) => !/^(read_verdict|read_days|read_paypal_record|draft_installer_message)(:failed)?$/.test(s))) problems.push(`[${step}] agent used a tool it doesn't have: ${agent.steps.join(',')}`);
+  return agent;
+}
+
 const recordLines = [];
 async function expectRecord(text) {
   const shown = await run(`document.querySelector('.paypal-record .match')?.textContent ?? document.querySelector('.paypal-record')?.textContent ?? 'no record panel'`);
@@ -148,10 +168,25 @@ const results = [];
 for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], [1280, 800, 'light'], [1280, 800, 'dark']]) {
   const tag = `${width}-${scheme}`;
   await send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 500 });
-  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: scheme }] });
+  // The 390 px dark pass also asks for reduced motion, so the landing race has to open on its last day.
+  const still = width === 390 && scheme === 'dark';
+  await send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: scheme }, { name: 'prefers-reduced-motion', value: still ? 'reduce' : 'no-preference' }] });
   const record = async (name) => { step = `${tag} ${name}`; const m = await run(measure); results.push({ step, ...m }); await shot(`${tag}-${name}`); };
 
   await open(`${BASE}/`); await record('landing');
+  // The landing race: no hold, no login. It plays once it's in view, and the money parts on Oct 23.
+  await run(`document.querySelector('.landing-race')?.scrollIntoView({ block: 'center' })`);
+  if (!still && await waitFor(`document.querySelector('.landing-race h2')?.textContent.includes('paid the $40.00 on Oct 23') ?? false`, 20_000, 'the landing race never reached Oct 23')) {
+    await record('landing-race-paid');
+    if (await run(`document.querySelector('.landing-race .race-replay').textContent`) !== 'Pause') problems.push(`[${step}] landing race isn't playing`);
+  }
+  if (await waitFor(`document.querySelector('.landing-race .race-replay')?.textContent === 'Replay'`, still ? 3_000 : 40_000, 'the landing race never reached Nov 19')) {
+    await record('landing-race-done');
+    const race = await expectRace('This check passed on Nov 19. A person can release the $40.00.', AFTER_PAID);
+    if (race !== null && (race.bars !== 39 || race.future !== 0 || race.paid !== 1 || race.ready !== 1)) problems.push(`[${step}] landing race cells ${JSON.stringify(race)}`);
+    const now = await run(`document.querySelector('.landing-race .race-now').textContent`);
+    if (now !== 'Nov 19, 2020') problems.push(`[${step}] landing race shows ${now}`);
+  }
   // The guided test: each thing it tells a judge to do has to exist and do what it says.
   const heading = () => run(`document.querySelector('h1')?.textContent`);
   const expectHeading = async (text) => { const shown = await heading(); if (shown !== text) problems.push(`[${step}] heading is "${shown}", expected "${text}"`); };
@@ -160,6 +195,18 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   await clickSel('.release.ready'); await settle(1500); await record('hold-oct12');
   await expectHeading('$40.00 stays on hold.');
   await expectRecord('$0.00 captured, hold open');
+  if (await expectAgent('Ask the installer', true)) {
+    await run(`document.querySelector('.agent')?.scrollIntoView({ block: 'start' })`); await record('agent-oct12');
+    // Copy puts the draft on the clipboard and sends nothing: no write request leaves the page.
+    const writes = writeRequests;
+    await clickSel('.agent .copy-row button');
+    if (await waitFor(`!!document.querySelector('.agent .copy-row [role=status]')`, 3_000, 'Copy showed no note')) {
+      const note = await run(`document.querySelector('.agent .copy-row [role=status]').textContent`);
+      const same = await run(`navigator.clipboard.readText().then((t) => t === document.querySelector('.agent .ask .draft').textContent, () => null)`);
+      if (note !== 'Copied. Send it yourself if you want to.' || same !== true) problems.push(`[${step}] Copy: "${note}", clipboard matches draft: ${same}`);
+    }
+    if (writeRequests !== writes) problems.push(`[${step}] Copy sent ${writeRequests - writes} write requests`);
+  }
   await expectRace('Both rules are still holding the $40.00.');
   await checkLedger('oct12', 'Oct 12, 2020');
   // The excuse check: a demand to release is not a claim, and Release stays locked either way.
@@ -187,9 +234,15 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   await expectHeading('$40.00 stays on hold.');
   await clickStop('Oct 26'); await settle(1200); await record('oct26');
   await expectHeading('$40.00 stays on hold.');
+  await expectAgent('Ask the installer', true);
   await expectRace('The one-good-day rule paid the $40.00 on Oct 23. This check is still holding it.', 'Since then, Inverter 01 has had 1 day under 30% of usual.');
   await clickStop('Nov 19'); await settle(1200); await record('nov19-ready');
   await expectHeading('$40.00 can be released.');
+  // The agent proposes Release, and nothing moves until the person presses it.
+  if (await expectAgent('Release this milestone', false)) {
+    await run(`document.querySelector('.agent')?.scrollIntoView({ block: 'start' })`); await record('agent-nov19');
+    await expectRecord('$0.00 captured, hold open');
+  }
   await expectRace('This check passed on Nov 19. A person can release the $40.00.', AFTER_PAID);
   const all = await checkLedger('nov19', 'Nov 19, 2020');
 
@@ -214,8 +267,11 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
   await clickStop('All days'); await settle(400);
   await clickSel('.release.ready'); await settle(900); await record('released-m1');
   await expectRecord('$40.00 captured, hold open');
+  const waiting = await run(`document.querySelector('.agent .text')?.textContent ?? ''`);
+  if (!waiting.startsWith('Milestone 2 opens on ')) problems.push(`[${step}] agent card says "${waiting}" before milestone 2 opens`);
   await expectRace('A person released the $40.00 on Nov 19.', AFTER_PAID);
   await clickStop('Dec 19'); await settle(1200); await record('dec19-ready');
+  await expectAgent('Release this milestone', false);
   if (await run(`!!document.querySelector('.race')`)) problems.push(`[${step}] race still shown on the second milestone`);
   await clickSel('.release.ready'); await settle(900); await record('closed');
   await expectRecord('$100.00 captured, hold fully captured');
@@ -232,6 +288,7 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
     await open(`${BASE}/`); await clickSel('.release.ready'); await settle(1200);
     step = `${tag} play`;
     const asked = explainRequests;
+    const askedAgent = agentRequests;
     await clickStop('Play');
     if (await waitFor(`document.querySelector('.race h2')?.textContent.includes('paid the $40.00 on Oct 23') && document.querySelectorAll('.race-track.bars li:not(.future)').length >= 16`, 120_000, 'the one-good-day rule never paid')) {
       await record('race-paid');
@@ -243,6 +300,8 @@ for (const [width, height, scheme] of [[390, 844, 'light'], [390, 844, 'dark'], 
     if (race !== null && (race.bars !== 39 || race.future !== 0 || race.paid !== 1 || race.ready !== 1)) problems.push(`[${step}] race cells ${JSON.stringify(race)}`);
     if (!(await run(`document.querySelector('.btn.play')?.disabled === true`))) problems.push(`[${step}] Play still open on a ready day`);
     if (explainRequests - asked !== 1) problems.push(`[${step}] Play asked the AI ${explainRequests - asked} times, expected once`);
+    await expectAgent('Release this milestone', false);
+    if (agentRequests - askedAgent !== 1) problems.push(`[${step}] Play asked the agent ${agentRequests - askedAgent} times, expected once`);
     await checkLedger('after play', 'Nov 19, 2020');
   }
 

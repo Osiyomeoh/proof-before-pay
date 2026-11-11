@@ -58,7 +58,7 @@ function reachable(start: string): string[] {
 const src = (path: string) => join(fileURLToPath(new URL('../src/', import.meta.url)), path);
 
 test('the AI module cannot reach any code that moves money', () => {
-  for (const entry of ['ai/explain.ts', 'ai/bedrock.ts', 'ai/recorded.ts', 'ai/excuse.ts']) {
+  for (const entry of ['ai/explain.ts', 'ai/bedrock.ts', 'ai/recorded.ts', 'ai/excuse.ts', 'ai/agent.ts']) {
     const files = reachable(src(entry));
     assert.deepEqual(files.filter((file) => /^(paypal|payments|server)\//.test(file)), [], entry);
     assert.ok(files.includes('proof/engine.ts'), 'the walk should reach the engine, or it proves nothing');
@@ -149,6 +149,12 @@ const REJECTED: Array<[TemplateReason, ModelReply | Error]> = [
   ['CONTRADICTS_HOLD', reply({ explanation: 'The payment stays held until the drop is explained.', installer_question: 'Why?' })],
   ['MISREADS_EVIDENCE', reply({ explanation: "The average share of peers' output was 31%.", installer_question: 'Why?' })],
   ['MISREADS_EVIDENCE', reply({ explanation: 'On hold since 2020-10-12.', installer_question: 'Why?' })],
+  // Structured output can end a string at a stray quotation mark and still be valid JSON.
+  ['UNFINISHED', reply({ explanation: 'The payment is on hold because the inverter made', installer_question: 'Why?' })],
+  ['UNFINISHED', reply({ explanation: 'The payment is on hold (the inverter made no power.', installer_question: 'Why?' })],
+  ['UNFINISHED', reply({ explanation: 'The payment is on hold.', installer_question: 'What happened on' })],
+  // A hold that waits on the installer reads as one a reply could clear.
+  ['CONTRADICTS_HOLD', reply({ explanation: 'The installer should account for the drop before this can proceed.', installer_question: 'Why?' })],
 ];
 
 for (const [reason, answer] of REJECTED) {
@@ -160,6 +166,12 @@ for (const [reason, answer] of REJECTED) {
     assert.ok((shown.installerQuestion ?? '').length > 0);
   });
 }
+
+test('a hold that waits on new readings is true, so it passes', () => {
+  const evidence = JSON.stringify(buildEvidence(OUTAGE));
+  assert.equal(reviewAnswer(OUTAGE, evidence, 'New production data is needed before the hold can be lifted.', 'Can you explain the zero days?'), null);
+  assert.equal(reviewAnswer(OUTAGE, evidence, 'The installer must respond before the payment can be released.', 'Why?'), 'CONTRADICTS_HOLD');
+});
 
 test('numbers are compared by value, so 5.40 matches 5.4 and dates in words are allowed', () => {
   const evidence = JSON.stringify({ sun: 5.4, date: '2020-10-05', share: 0 });

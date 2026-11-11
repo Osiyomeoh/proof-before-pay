@@ -7,7 +7,7 @@ import type { IncomingHttpHeaders } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { after, before, test } from 'node:test';
 import { brotliDecompressSync } from 'node:zlib';
-import { createRecordedExplainer } from '../src/ai/recorded.ts';
+import { createRecordedAgent, createRecordedExplainer } from '../src/ai/recorded.ts';
 import { createExplainer } from '../src/ai/explain.ts';
 import { createExcuseChecker, createRecordedSplitter } from '../src/ai/excuse.ts';
 import { loadMauiLogger } from '../src/proof/claims.ts';
@@ -39,7 +39,7 @@ const checkExcuse = createExcuseChecker(createRecordedSplitter(excuseRun.results
 function startServer(paypal: PayPalClient, options: Partial<AppDeps> = {}) {
   const payments = createPayments({ paypal, proof });
   const explainer = createRecordedExplainer();
-  const app = createApp({ payments, proof, fleet, lastDate, mode: 'sample', publicUrl: 'http://localhost', explain: (v) => explainer.explain(v), ledger: ledger.through, orderRecord: async (c) => ({ record: recordedOrder(c), readAt: '2026-11-06T00:00:00.000Z' }), checkExcuse, forgeCheck: (v) => forgeryTest(v, fleet, loadMauiLogger(MAUI_INVERTERS)), ...options });
+  const app = createApp({ payments, proof, fleet, lastDate, mode: 'sample', publicUrl: 'http://localhost', explain: (v) => explainer.explain(v), ledger: ledger.through, orderRecord: async (c) => ({ record: recordedOrder(c), readAt: '2026-11-06T00:00:00.000Z' }), checkExcuse, forgeCheck: (v) => forgeryTest(v, fleet, loadMauiLogger(MAUI_INVERTERS)), agent: createRecordedAgent(), ...options });
   const server = createServer(createHandler({ payments, verifyWebhook: async () => ({ ok: false, reason: 'NOT_CONFIGURED' }), app }));
   return server;
 }
@@ -150,6 +150,48 @@ test('the view carries both pay rules for the first milestone, up to the day jud
 
   await replay(id, '2020-12-19');
   assert.equal(((await view(id)) as WithRace).race, null);
+});
+
+test('the landing page race needs no hold: the same month a hold sees on Nov 19, with no PayPal call', async () => {
+  const calls: string[] = [];
+  const watched = new Proxy(recorded, {
+    get(target, name, receiver) {
+      const value: unknown = Reflect.get(target, name, receiver);
+      if (typeof value !== 'function') return value;
+      return (...args: unknown[]) => {
+        calls.push(String(name));
+        return (value as (...a: unknown[]) => unknown).apply(target, args);
+      };
+    },
+  });
+  const own = startServer(watched);
+  await new Promise<void>((resolve) => own.listen(0, '127.0.0.1', resolve));
+  try {
+    const url = `http://127.0.0.1:${(own.address() as AddressInfo).port}/api/race`;
+    const first = (await (await fetch(url)).json()) as { unit: string; race: Race };
+    const again = (await (await fetch(url)).json()) as { unit: string; race: Race };
+    assert.deepEqual(again, first);
+    assert.deepEqual(calls, []);
+    assert.equal(first.unit, 'Inverter 01');
+    const { race } = first;
+    assert.equal(race.amountCents, DEMO_MILESTONES[0]?.amountCents);
+    assert.equal(race.from, '2020-10-12');
+    assert.equal(race.through, '2020-11-19');
+    assert.equal(race.days.length, 39);
+    assert.equal(race.simplePaidOn, '2020-10-23');
+    assert.equal(race.oursReadyOn, '2020-11-19');
+    assert.equal(race.underFloorSincePaid, 16);
+    assert.equal(race.noReadingSincePaid, 2);
+  } finally {
+    own.close();
+  }
+
+  // A real hold moved to Nov 19 sees exactly the same race.
+  const id = await newHold();
+  await replay(id, '2020-11-19');
+  const held = ((await view(id)) as ContractView & { race: Race | null }).race;
+  const landing = ((await (await fetch(`${base}/api/race`)).json()) as { race: Race }).race;
+  assert.deepEqual(landing, held);
 });
 
 test('a neighbour contract has no pay-rule race', async () => {
@@ -310,6 +352,38 @@ test('giving the rest back after one release returns the remainder and blocks la
   assert.equal(v.releasedCents, 4000);
   assert.equal((await replay(id, '2020-12-19')).status, 409);
   assert.equal((await release(id, 'm2')).body.outcome, 'NOT_HELD');
+});
+
+type AgentReply = { run: { source: string; nextStep: string; date: string; steps: Array<{ tool: string }>; messageToInstaller: string | null } | null };
+const agentFor = async (id: string) => {
+  const res = await fetch(`${base}/api/contracts/${id}/agent`);
+  return { status: res.status, body: (await res.json()) as AgentReply };
+};
+
+test('the agent route only reads: the hold, the view and the captures are the same after it runs', async () => {
+  const id = await newHold();
+  for (const [date, step] of [['2020-10-12', 'ASK_INSTALLER'], ['2020-11-19', 'PROPOSE_RELEASE']] as const) {
+    // A new hold opens on Oct 12, so only the later day needs a replay.
+    if ((await view(id)).clock.date !== date) assert.equal((await replay(id, date)).status, 200);
+    const before = { view: await view(id), captures: captures.length };
+    const { status, body } = await agentFor(id);
+    assert.equal(status, 200);
+    assert.equal(body.run?.source, 'recorded', date);
+    assert.equal(body.run?.date, date);
+    assert.equal(body.run?.nextStep, step, date);
+    assert.deepEqual(await view(id), before.view, date);
+    assert.equal(captures.length, before.captures, date);
+  }
+  // Proposing Release does not release: the milestone still needs a person's tap.
+  assert.equal((await view(id)).releasedCents, 0);
+});
+
+test('the agent has nothing to say once the hold is closed, and an unknown hold is a 404', async () => {
+  const id = await newHold();
+  const { token } = (await (await post(`/api/contracts/${id}/void/tap`)).json()) as { token: string };
+  assert.equal((await post(`/api/contracts/${id}/void`, { tap: token })).status, 200);
+  assert.deepEqual((await agentFor(id)).body, { run: null });
+  assert.equal((await agentFor('no-such-hold')).status, 404);
 });
 
 test('explanation for the outage is a saved real answer, labelled as recorded', async () => {

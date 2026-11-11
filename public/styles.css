@@ -285,6 +285,25 @@ button { font: inherit; }
   @keyframes blink { from { opacity: .15; transform: scaleY(.4); } }
 }
 
+/* The same race on the landing page, playing by itself. Text boxes keep their height, so the tracks don't jump as the words change. */
+.landing-race-slot { min-width: 0; }
+.card.landing-race { margin-bottom: 0; padding: var(--s-5); }
+.race-top { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-2) var(--s-3); }
+.race-replaying { font-size: 13px; color: var(--ink-3); }
+.race-now { color: var(--ink); font-weight: 500; font-size: 14px; }
+.race-top .race-replay { margin-left: auto; min-height: 40px; }
+.race-body { display: grid; gap: var(--s-2); min-width: 0; }
+.landing-race h2 { min-height: 3.6em; }
+.landing-race .race-sub { min-height: 4.5em; }
+.race-note { font-size: 13px; color: var(--ink-3); max-width: 72ch; border-top: 1px solid var(--line); padding-top: var(--s-3); margin-top: var(--s-2); }
+@media (min-width: 720px) {
+  .landing-race h2 { min-height: 2.4em; }
+  .landing-race .race-sub { min-height: 3em; }
+}
+@media (min-width: 960px) {
+  .landing .landing-race-slot { grid-column: 1 / -1; }
+}
+
 /* ---------- Page layout ---------- */
 .stage { display: grid; gap: var(--s-4); padding-bottom: var(--s-4); }
 .main-col, .side-col { display: grid; gap: var(--s-4); align-content: start; min-width: 0; }
@@ -381,6 +400,30 @@ button { font: inherit; }
 .ask { margin-top: var(--s-4); padding: var(--s-3) var(--s-4); border-radius: var(--r-2); background: var(--brand-bg); border: 1px solid color-mix(in srgb, var(--brand) 25%, transparent); }
 .ask b { display: block; font-size: 13px; color: var(--brand); font-weight: 600; margin-bottom: var(--s-1); }
 .ask p { font-size: 15px; color: var(--ink-2); }
+
+/* ---------- AI agent ---------- */
+.agent .limit { font-size: 13px; color: var(--ink-3); }
+.agent .label { font: 400 12px/1.4 var(--mono); color: var(--ink-3); margin-bottom: var(--s-3); overflow-wrap: anywhere; }
+.agent .text { font-size: 16px; max-width: 68ch; }
+.agent .text.quiet { color: var(--ink-3); font-size: 14px; margin-top: var(--s-2); }
+.agent .note { font-size: 13px; color: var(--ink-3); }
+.tool-steps { list-style: none; display: grid; gap: var(--s-2); margin: 0 0 var(--s-4); padding: 0; min-width: 0; }
+.tool-steps li { display: grid; grid-template-columns: auto 1fr; gap: var(--s-1) var(--s-3); align-items: baseline; padding-left: var(--s-4); position: relative; font-size: 14px; color: var(--ink-2); min-width: 0; }
+.tool-steps li::before { content: ""; position: absolute; left: 0; top: .5em; width: 8px; height: 8px; border-radius: 50%; background: var(--ready); }
+.tool-steps li.no::before { background: var(--mid); }
+.tool-steps code { font: 500 12px/1.6 var(--mono); color: var(--brand); background: var(--brand-bg); padding: 0 6px; border-radius: 6px; white-space: nowrap; }
+.tool-steps span { min-width: 0; overflow-wrap: anywhere; }
+.proposal { display: grid; gap: var(--s-2); padding: var(--s-3) var(--s-4); border-radius: var(--r-2); background: var(--card-2); border: 1px solid var(--line); }
+.proposal.go { background: var(--ready-bg); border-color: var(--ready-line); }
+.proposal b { font-size: 14px; font-weight: 600; color: var(--ink); }
+.proposal.go b { color: var(--ready); }
+.proposal p { font-size: 15px; color: var(--ink-2); max-width: 68ch; }
+.ask .draft { white-space: pre-line; overflow-wrap: anywhere; }
+.copy-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s-3); margin-top: var(--s-3); }
+@media (max-width: 520px) {
+  .tool-steps li { grid-template-columns: 1fr; }
+  .tool-steps code { justify-self: start; }
+}
 
 .excuse { display: grid; gap: var(--s-3); min-width: 0; }
 .excuse .note { font-size: 13px; color: var(--ink-3); }

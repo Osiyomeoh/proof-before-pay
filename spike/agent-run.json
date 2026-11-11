@@ -1,0 +1,337 @@
+{
+  "ranAt": "2026-11-11T05:32:24.584Z",
+  "kept": 6,
+  "total": 6,
+  "calls": 20,
+  "tokens": 103569,
+  "results": [
+    {
+      "source": "model",
+      "model": "claude-sonnet-4-6",
+      "fallbackReason": null,
+      "date": "2020-10-12",
+      "status": "HOLD",
+      "milestone": {
+        "number": 1,
+        "of": 2,
+        "title": "System producing",
+        "amountCents": 4000
+      },
+      "steps": [
+        {
+          "tool": "read_verdict",
+          "input": {},
+          "said": "HOLD on Oct 12, 2020: 7-day average too low, A day under the floor",
+          "ok": true
+        },
+        {
+          "tool": "read_days",
+          "input": {
+            "days": 45
+          },
+          "said": "45 days, Aug 29, 2020 to Oct 12, 2020: 4 at zero, 5 judged HOLD",
+          "ok": true
+        },
+        {
+          "tool": "read_paypal_record",
+          "input": {},
+          "said": "PayPal: authorization CREATED, $0.00 captured. Agrees with this page",
+          "ok": true
+        },
+        {
+          "tool": "draft_installer_message",
+          "input": {
+            "message": "We are reviewing Milestone 1 of 2 ($40.00) for this installation and need your help understanding a recent drop in production from this inverter.\n\nThis inverter performed well through Oct 7, 2020, consistently delivering its usual share of output compared with the other inverters on the roof. However, production fell sharply on Oct 8, 2020 to just 11% of its usual share, and then dropped to zero for four consecutive days from Oct 9, 2020 through Oct 12, 2020.\n\nOver the 7-day assessment window ending Oct 12, 2020, this inverter averaged only 31% of its usual share, well below the required threshold of 70%. In total, 5 days fell below the minimum allowed daily share of 30%, and 4 of those days recorded zero output.\n\nCould you please provide an explanation for this drop in production and share the monitoring logs for Oct 8, 2020 through Oct 12, 2020? Thank you."
+          },
+          "said": "Draft failed a check: The message is longer than 600 characters.",
+          "ok": false
+        },
+        {
+          "tool": "draft_installer_message",
+          "input": {
+            "message": "We are reviewing Milestone 1 of 2 ($40.00) and need your help understanding a recent drop in output from this inverter.\n\nThis inverter performed well through Oct 7, 2020, but production fell to 11% of its usual share on Oct 8, 2020, then recorded zero output from Oct 9, 2020 through Oct 12, 2020. Over the 7-day window, the average was 31% of its usual share, below the required 70%.\n\nCould you please explain the drop and share the monitoring logs for Oct 8, 2020 through Oct 12, 2020? Thank you."
+          },
+          "said": "Draft passed the checks. Nothing was sent",
+          "ok": true
+        }
+      ],
+      "nextStep": "ASK_INSTALLER",
+      "summary": "Milestone 1 of 2 ($40.00) is on HOLD as of Oct 12, 2020. This inverter averaged only 31% of its usual share over the 7-day window, well below the required 70%, with zero output on 4 consecutive days (Oct 9, 2020 through Oct 12, 2020) and 5 days in total falling below the minimum daily threshold of 30%. The installer should be asked to account for the sharp production drop starting Oct 8, 2020.",
+      "messageToInstaller": "We are reviewing Milestone 1 of 2 ($40.00) and need your help understanding a recent drop in output from this inverter.\n\nThis inverter performed well through Oct 7, 2020, but production fell to 11% of its usual share on Oct 8, 2020, then recorded zero output from Oct 9, 2020 through Oct 12, 2020. Over the 7-day window, the average was 31% of its usual share, below the required 70%.\n\nCould you please explain the drop and share the monitoring logs for Oct 8, 2020 through Oct 12, 2020? Thank you.",
+      "usage": {
+        "inputTokens": 21054,
+        "outputTokens": 874
+      },
+      "calls": 4,
+      "ms": 19931
+    },
+    {
+      "source": "model",
+      "model": "claude-sonnet-4-6",
+      "fallbackReason": null,
+      "date": "2020-10-22",
+      "status": "HOLD",
+      "milestone": {
+        "number": 1,
+        "of": 2,
+        "title": "System producing",
+        "amountCents": 4000
+      },
+      "steps": [
+        {
+          "tool": "read_verdict",
+          "input": {},
+          "said": "HOLD on Oct 22, 2020: 7-day average too low, A day under the floor",
+          "ok": true
+        },
+        {
+          "tool": "read_days",
+          "input": {
+            "days": 45
+          },
+          "said": "45 days, Sep 8, 2020 to Oct 22, 2020: 13 at zero, 15 judged HOLD",
+          "ok": true
+        },
+        {
+          "tool": "read_paypal_record",
+          "input": {},
+          "said": "PayPal: authorization CREATED, $0.00 captured. Agrees with this page",
+          "ok": true
+        },
+        {
+          "tool": "draft_installer_message",
+          "input": {
+            "message": "I am writing about Milestone 1 of 2 ($40.00) for the solar installation at your site.\n\nThe rule engine has placed this milestone on hold as of Oct 22, 2020, due to very low production from this inverter over the past 7 days (Oct 16, 2020 through Oct 22, 2020). During that period, this inverter recorded 0 kWh on 6 consecutive days (Oct 16, 2020 through Oct 21, 2020), and produced only 22 kWh on Oct 22, 2020. The other inverters on the roof continued producing normally throughout.\n\nLooking further back, this inverter had zero output from Oct 9, 2020 through Oct 21, 2020 — a stretch of 13 consecutive days — while the other inverters on the roof showed no such drop.\n\nCould you please explain what happened to this inverter during Oct 9, 2020 through Oct 21, 2020, and provide the monitoring logs for that period? Thank you."
+          },
+          "said": "Draft failed a check: The message is longer than 600 characters.",
+          "ok": false
+        },
+        {
+          "tool": "draft_installer_message",
+          "input": {
+            "message": "I am writing about Milestone 1 of 2 ($40.00).\n\nThe rule engine has placed this milestone on hold as of Oct 22, 2020. This inverter recorded 0 kWh on 6 consecutive days (Oct 16, 2020 through Oct 21, 2020), and only 22 kWh on Oct 22, 2020. The other inverters on the roof continued producing normally. Zero output stretches back to Oct 9, 2020 — a run of 13 consecutive days.\n\nCould you please explain what happened between Oct 9, 2020 and Oct 21, 2020, and provide the monitoring logs for those dates? Thank you."
+          },
+          "said": "Draft passed the checks. Nothing was sent",
+          "ok": true
+        }
+      ],
+      "nextStep": "ASK_INSTALLER",
+      "summary": "Milestone 1 of 2 ($40.00) is on HOLD as of Oct 22, 2020. This inverter recorded 0 kWh on 6 days within the 7-day window (Oct 16–Oct 21, 2020), giving an average of only 9% of its usual share against a required minimum of 70%, while the other inverters on the roof produced normally throughout. The installer should be asked to account for the low production, particularly the 13-day zero-output stretch from Oct 9, 2020 through Oct 21, 2020.",
+      "messageToInstaller": "I am writing about Milestone 1 of 2 ($40.00).\n\nThe rule engine has placed this milestone on hold as of Oct 22, 2020. This inverter recorded 0 kWh on 6 consecutive days (Oct 16, 2020 through Oct 21, 2020), and only 22 kWh on Oct 22, 2020. The other inverters on the roof continued producing normally. Zero output stretches back to Oct 9, 2020 — a run of 13 consecutive days.\n\nCould you please explain what happened between Oct 9, 2020 and Oct 21, 2020, and provide the monitoring logs for those dates? Thank you.",
+      "usage": {
+        "inputTokens": 20960,
+        "outputTokens": 929
+      },
+      "calls": 4,
+      "ms": 20561
+    },
+    {
+      "source": "model",
+      "model": "claude-sonnet-4-6",
+      "fallbackReason": null,
+      "date": "2020-10-23",
+      "status": "HOLD",
+      "milestone": {
+        "number": 1,
+        "of": 2,
+        "title": "System producing",
+        "amountCents": 4000
+      },
+      "steps": [
+        {
+          "tool": "read_verdict",
+          "input": {},
+          "said": "HOLD on Oct 23, 2020: 7-day average too low, A day under the floor",
+          "ok": true
+        },
+        {
+          "tool": "read_days",
+          "input": {
+            "days": 45
+          },
+          "said": "45 days, Sep 9, 2020 to Oct 23, 2020: 13 at zero, 16 judged HOLD",
+          "ok": true
+        },
+        {
+          "tool": "read_paypal_record",
+          "input": {},
+          "said": "PayPal: authorization CREATED, $0.00 captured. Agrees with this page",
+          "ok": true
+        },
+        {
+          "tool": "draft_installer_message",
+          "input": {
+            "message": "We are reviewing the production data for this inverter as part of the milestone payment process for Milestone 1 of 2 ($40.00).\n\nThe data shows that this inverter recorded zero output for 13 consecutive days, from Oct 9, 2020 through Oct 21, 2020. During that same period, the other inverters on the roof continued producing normally. Output dropped sharply beginning Oct 8, 2020, when this inverter reached only 11% of its usual share.\n\nOver the 7-day judgment window (Oct 17, 2020 through Oct 23, 2020), the average share of usual was 24%, well below the required 70%. All 5 days from Oct 17, 2020 through Oct 21, 2020 recorded 0 kWh, each below the minimum daily threshold of 30% of its usual share.\n\nCould you please provide an explanation for this period of low production, along with the monitoring logs for Oct 8, 2020 through Oct 23, 2020? This information will help us understand what happened during this period."
+          },
+          "said": "Draft failed a check: The message is longer than 600 characters.",
+          "ok": false
+        },
+        {
+          "tool": "draft_installer_message",
+          "input": {
+            "message": "We are reviewing Milestone 1 of 2 ($40.00) and have a question about this inverter's output.\n\nThe records show zero output from Oct 9, 2020 through Oct 21, 2020 (13 days), while the other inverters on the roof continued producing normally. Over the 7-day judgment window, this inverter averaged only 24% of its usual share, against a required 70%.\n\nCould you please explain what happened during this period and share the monitoring logs for Oct 8, 2020 through Oct 23, 2020? Thank you."
+          },
+          "said": "Draft passed the checks. Nothing was sent",
+          "ok": true
+        }
+      ],
+      "nextStep": "ASK_INSTALLER",
+      "summary": "Milestone 1 of 2 ($40.00) is on HOLD. This inverter averaged only 24% of its usual share over the 7-day judgment window, against the required 70%, and recorded zero output for 13 consecutive days from Oct 9, 2020 through Oct 21, 2020 while the other inverters on the roof kept producing. The installer should be asked to account for this period.",
+      "messageToInstaller": "We are reviewing Milestone 1 of 2 ($40.00) and have a question about this inverter's output.\n\nThe records show zero output from Oct 9, 2020 through Oct 21, 2020 (13 days), while the other inverters on the roof continued producing normally. Over the 7-day judgment window, this inverter averaged only 24% of its usual share, against a required 70%.\n\nCould you please explain what happened during this period and share the monitoring logs for Oct 8, 2020 through Oct 23, 2020? Thank you.",
+      "usage": {
+        "inputTokens": 20921,
+        "outputTokens": 842
+      },
+      "calls": 4,
+      "ms": 18535
+    },
+    {
+      "source": "model",
+      "model": "claude-sonnet-4-6",
+      "fallbackReason": null,
+      "date": "2020-10-26",
+      "status": "HOLD",
+      "milestone": {
+        "number": 1,
+        "of": 2,
+        "title": "System producing",
+        "amountCents": 4000
+      },
+      "steps": [
+        {
+          "tool": "read_verdict",
+          "input": {},
+          "said": "HOLD on Oct 26, 2020: 7-day average too low, A day under the floor",
+          "ok": true
+        },
+        {
+          "tool": "read_days",
+          "input": {
+            "days": 45
+          },
+          "said": "45 days, Sep 12, 2020 to Oct 26, 2020: 14 at zero, 19 judged HOLD",
+          "ok": true
+        },
+        {
+          "tool": "read_paypal_record",
+          "input": {},
+          "said": "PayPal: authorization CREATED, $0.00 captured. Agrees with this page",
+          "ok": true
+        },
+        {
+          "tool": "draft_installer_message",
+          "input": {
+            "message": "We are reviewing the production data for Milestone 1 of 2 ($40.00) and have some concerns we hope you can help clarify.\n\nOver the 7-day window ending Oct 26, 2020, this inverter produced at only 44% of its usual share, well below the required 70%. Specifically, there were zero-output days on Oct 20, 2020 and Oct 21, 2020, and again on Oct 26, 2020, while the other inverters on the roof continued producing normally.\n\nLooking further back, there was also a longer stretch of zero output from Oct 9, 2020 through Oct 21, 2020 (13 consecutive days), during which the other inverters on the roof showed no such drop.\n\nCould you please provide an explanation for the low production during these periods, along with the monitoring logs for Oct 9, 2020 through Oct 26, 2020? Thank you."
+          },
+          "said": "Draft failed a check: The message is longer than 600 characters.",
+          "ok": false
+        },
+        {
+          "tool": "draft_installer_message",
+          "input": {
+            "message": "We are reviewing Milestone 1 of 2 ($40.00) and need your help.\n\nIn the 7-day window ending Oct 26, 2020, this inverter reached only 44% of its usual share (minimum required: 70%), with zero output on Oct 20, 2020, Oct 21, 2020, and Oct 26, 2020. There was also a zero-output stretch from Oct 9, 2020 through Oct 21, 2020, while the other inverters on the roof continued producing.\n\nPlease provide an explanation and the monitoring logs for Oct 9, 2020 through Oct 26, 2020. Thank you."
+          },
+          "said": "Draft passed the checks. Nothing was sent",
+          "ok": true
+        }
+      ],
+      "nextStep": "ASK_INSTALLER",
+      "summary": "Milestone 1 of 2 ($40.00) is on HOLD as of Oct 26, 2020. Over the judged 7-day window, this inverter averaged only 44% of its usual share (minimum required: 70%), with zero output on Oct 20, 2020, Oct 21, 2020, and Oct 26, 2020, while the other inverters on the roof kept producing. There was also a 13-day zero-output stretch from Oct 9, 2020 through Oct 21, 2020, making it appropriate to ask the installer for an explanation and logs.",
+      "messageToInstaller": "We are reviewing Milestone 1 of 2 ($40.00) and need your help.\n\nIn the 7-day window ending Oct 26, 2020, this inverter reached only 44% of its usual share (minimum required: 70%), with zero output on Oct 20, 2020, Oct 21, 2020, and Oct 26, 2020. There was also a zero-output stretch from Oct 9, 2020 through Oct 21, 2020, while the other inverters on the roof continued producing.\n\nPlease provide an explanation and the monitoring logs for Oct 9, 2020 through Oct 26, 2020. Thank you.",
+      "usage": {
+        "inputTokens": 20896,
+        "outputTokens": 892
+      },
+      "calls": 4,
+      "ms": 19031
+    },
+    {
+      "source": "model",
+      "model": "claude-sonnet-4-6",
+      "fallbackReason": null,
+      "date": "2020-11-19",
+      "status": "RELEASE_READY",
+      "milestone": {
+        "number": 1,
+        "of": 2,
+        "title": "System producing",
+        "amountCents": 4000
+      },
+      "steps": [
+        {
+          "tool": "read_verdict",
+          "input": {},
+          "said": "RELEASE_READY on Nov 19, 2020: 92% of its usual share over 7 days",
+          "ok": true
+        },
+        {
+          "tool": "read_days",
+          "input": {
+            "days": 45
+          },
+          "said": "45 days, Oct 6, 2020 to Nov 19, 2020: 29 at zero, 2 with no reading, 42 judged HOLD",
+          "ok": true
+        },
+        {
+          "tool": "read_paypal_record",
+          "input": {},
+          "said": "PayPal: authorization CREATED, $0.00 captured. Agrees with this page",
+          "ok": true
+        }
+      ],
+      "nextStep": "PROPOSE_RELEASE",
+      "summary": "Milestone 1 of 2 ($40.00) has a verdict of RELEASE_READY as of Nov 19, 2020, with an average share of 92% of its usual share over the 7-day window and no zero-output days or days below the allowed threshold in that window. PayPal's record agrees with this page and the hold is still open, so the milestone is ready for a person to press Release.",
+      "messageToInstaller": null,
+      "usage": {
+        "inputTokens": 7851,
+        "outputTokens": 215
+      },
+      "calls": 2,
+      "ms": 12146
+    },
+    {
+      "source": "model",
+      "model": "claude-sonnet-4-6",
+      "fallbackReason": null,
+      "date": "2020-12-19",
+      "status": "RELEASE_READY",
+      "milestone": {
+        "number": 2,
+        "of": 2,
+        "title": "Still producing 30 days later",
+        "amountCents": 6000
+      },
+      "steps": [
+        {
+          "tool": "read_verdict",
+          "input": {},
+          "said": "RELEASE_READY on Dec 19, 2020: 96% of its usual share over 7 days",
+          "ok": true
+        },
+        {
+          "tool": "read_paypal_record",
+          "input": {},
+          "said": "PayPal: authorization PARTIALLY_CAPTURED, $40.00 captured. Agrees with this page",
+          "ok": true
+        },
+        {
+          "tool": "read_days",
+          "input": {
+            "days": 45
+          },
+          "said": "45 days, Nov 5, 2020 to Dec 19, 2020: 6 at zero, 2 with no reading, 14 judged HOLD",
+          "ok": true
+        }
+      ],
+      "nextStep": "PROPOSE_RELEASE",
+      "summary": "Milestone 2 of 2 ($60.00) is RELEASE_READY as of Dec 19, 2020. This inverter averaged 96% of its usual share across the 7-day window with no zero-output days and no days below the allowed threshold, and PayPal's record agrees with this page. You may release the payment.",
+      "messageToInstaller": null,
+      "usage": {
+        "inputTokens": 7933,
+        "outputTokens": 202
+      },
+      "calls": 2,
+      "ms": 6730
+    }
+  ]
+}

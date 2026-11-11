@@ -32,6 +32,7 @@ export type TemplateReason =
   | 'CUT_OFF'
   | 'BAD_JSON'
   | 'EMPTY'
+  | 'UNFINISHED'
   | 'NUMBER_NOT_IN_EVIDENCE'
   | 'NAMES_A_CAUSE'
   | 'WRONG_PEERS'
@@ -122,22 +123,42 @@ const toNumbers = (text: string) => (text.match(NUMBER) ?? []).map((part) => Num
 const CAUSE = /\b(fail(ed|ure|ing)?|fault(y|s)?|broken|defect(ive)?|malfunction\w*|damaged?|wiring|shading|soiling|dirty|tripped)\b/i;
 const WRONG_PEERS = /\b(nearby|neighbou?rs?|neighbou?ring)\b/i;
 const HOME = /\b(home|house)\b/i;
-const PAY_NOW = /(ready to (be )?release|safe to (pay|release)|go ahead|you (can|should|may) (now )?(release|pay)|resolved before|(once|after|until) [^.]{0,40}\b(resolved|explained|answered|fixed)\b)/i;
+// The last part catches a hold that waits on the installer: "The installer should account for it before this
+// can proceed". "New production data is needed before the hold can be lifted" is true, so it passes.
+const PAY_NOW = /(ready to (be )?release|safe to (pay|release)|go ahead|you (can|should|may) (now )?(release|pay)|resolved before|(once|after|until) [^.]{0,40}\b(resolved|explained|answered|fixed)\b|\binstaller\b[^.]{0,100}\bbefore (this|it|the (payment|milestone|money|funds|hold)) (can|will)\b)/i;
 // The page writes "Oct 8, 2020"; an ISO date or a bare share of "peers' output" misreads the evidence.
 const MISREAD = /\b\d{4}-\d{2}-\d{2}\b|\bpeers?'? output (was|of)\b|share of (its )?peers'? output\b/i;
 
-export function reviewAnswer(verdict: Verdict, evidenceJson: string, explanation: string, question: string): TemplateReason | null {
-  const text = `${explanation} ${question}`;
-  if (explanation.trim() === '') return 'EMPTY';
-  if (verdict.status === 'HOLD' && question.trim() === '') return 'EMPTY';
+// Structured output ends a string at a stray quotation mark, so a cut-off text can still be valid JSON.
+// A text must end a sentence and close its brackets.
+const unfinished = (text: string) => {
+  const trimmed = text.trim();
+  return !/[.!?]["')\]]*$/.test(trimmed) || (trimmed.match(/\(/g) ?? []).length !== (trimmed.match(/\)/g) ?? []).length;
+};
+
+// The checks every AI text on the page must pass. The agent in agent.ts uses them too, on its summary,
+// its drafts and its message to the installer, with everything its tools returned as the evidence.
+// Each text is checked on its own, so give the explanation and the question separately.
+export function reviewText(status: Verdict['status'], evidenceJson: string, ...texts: string[]): TemplateReason | null {
+  for (const text of texts) if (text.trim() !== '' && unfinished(text)) return 'UNFINISHED';
+  return reviewWords(status, evidenceJson, texts.join(' '));
+}
+
+function reviewWords(status: Verdict['status'], evidenceJson: string, text: string): TemplateReason | null {
   const allowed = new Set(toNumbers(evidenceJson));
   if (toNumbers(text).some((value) => !allowed.has(value))) return 'NUMBER_NOT_IN_EVIDENCE';
   if (CAUSE.test(text)) return 'NAMES_A_CAUSE';
   if (WRONG_PEERS.test(text)) return 'WRONG_PEERS';
   if (HOME.test(text)) return 'CALLS_IT_A_HOME';
-  if (verdict.status === 'HOLD' && PAY_NOW.test(text)) return 'CONTRADICTS_HOLD';
+  if (status === 'HOLD' && PAY_NOW.test(text)) return 'CONTRADICTS_HOLD';
   if (MISREAD.test(text)) return 'MISREADS_EVIDENCE';
   return null;
+}
+
+export function reviewAnswer(verdict: Verdict, evidenceJson: string, explanation: string, question: string): TemplateReason | null {
+  if (explanation.trim() === '') return 'EMPTY';
+  if (verdict.status === 'HOLD' && question.trim() === '') return 'EMPTY';
+  return reviewText(verdict.status, evidenceJson, explanation, question);
 }
 
 function dayFact(day: EvidenceDay | undefined): string {

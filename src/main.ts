@@ -2,9 +2,9 @@
 // it runs in sample mode: real Maui data, recorded PayPal replies and recorded AI answers, all labelled.
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { createBedrockExplainer, createBedrockSplitter } from './ai/bedrock.ts';
+import { createBedrockAgent, createBedrockExplainer, createBedrockSplitter } from './ai/bedrock.ts';
 import { createExcuseChecker, createRecordedSplitter } from './ai/excuse.ts';
-import { createRecordedExplainer } from './ai/recorded.ts';
+import { createRecordedAgent, createRecordedExplainer } from './ai/recorded.ts';
 import { createPayments } from './payments/service.ts';
 import type { Contract } from './payments/service.ts';
 import { createPayPalClient } from './paypal/client.ts';
@@ -31,6 +31,8 @@ const sample = process.env['SAMPLE_MODE'] === '1' || !clientId || !clientSecret;
 
 const paypal = sample || !clientId || !clientSecret ? createRecordedPayPal() : createPayPalClient({ clientId, clientSecret });
 const explainer = sample ? createRecordedExplainer() : createBedrockExplainer();
+// The agent: Claude with four read-only tools. In sample mode, saved real runs replayed against each hold.
+const agent = sample ? createRecordedAgent() : createBedrockAgent();
 const splitter = sample
   ? createRecordedSplitter(JSON.parse(readFileSync(new URL('../spike/excuse-run.json', import.meta.url), 'utf8')).results)
   : createBedrockSplitter();
@@ -56,7 +58,7 @@ const checkExcuse = createExcuseChecker(splitter, fleet, logger);
 const forgeCheck = (verdict: Verdict) => forgeryTest(verdict, fleet, logger);
 
 const ledger = createLedger(fleet, DEMO_UNIT, lastDate);
-const app = createApp({ payments, proof, fleet, lastDate, mode: sample ? 'sample' : 'sandbox', publicUrl, explain: (verdict) => explainer.explain(verdict), ledger: ledger.through, orderRecord, checkExcuse, forgeCheck });
+const app = createApp({ payments, proof, fleet, lastDate, mode: sample ? 'sample' : 'sandbox', publicUrl, explain: (verdict) => explainer.explain(verdict), ledger: ledger.through, orderRecord, checkExcuse, forgeCheck, agent });
 const verifyWebhook = createWebhookVerifier({ webhookId: process.env['PAYPAL_WEBHOOK_ID'] });
 
 // Containers must listen on 0.0.0.0, for App Runner (the primary host) and Render (the backup): https://render.com/docs/web-services

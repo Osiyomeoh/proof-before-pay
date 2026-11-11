@@ -8,11 +8,12 @@ import { addDays, isValidDate } from '../proof/engine.ts';
 import type { Fleet, Verdict } from '../proof/engine.ts';
 import { rulesRace } from '../proof/ledger.ts';
 import type { LedgerRow, Race } from '../proof/ledger.ts';
+import type { AgentCase, AgentRun } from '../ai/agent.ts';
 import type { Contract, Payments, Proof } from '../payments/service.ts';
 import { isMetered } from '../payments/service.ts';
 import { checkRecord } from '../paypal/order-record.ts';
 import type { TimedRecord } from '../paypal/order-record.ts';
-import { DEMO_DESCRIPTION, DEMO_MILESTONES, DEMO_START, DEMO_UNIT, RACE_END, buildView, currentIndex, opensOn, seenDate } from './demo.ts';
+import { DEMO_DESCRIPTION, DEMO_MILESTONES, DEMO_SOURCE, DEMO_START, DEMO_UNIT, RACE_END, buildView, currentIndex, opensOn, seenDate } from './demo.ts';
 import { readJson, send } from './http.ts';
 import { NEIGHBOUR_DESCRIPTION, NEIGHBOUR_MILESTONES, buildNeighbourView } from './neighbour.ts';
 
@@ -51,6 +52,8 @@ export type AppDeps = {
   maxExcusesPerMinute?: number;
   // A read-only what-if: forged totals against the logger. It never touches a hold or a payment.
   forgeCheck: (verdict: Verdict) => unknown;
+  // The AI agent: four read-only tools, and a proposed next step that a person acts on. It has no payment tools.
+  agent: { run: (c: AgentCase) => Promise<AgentRun> };
   now?: () => number;
   maxHoldsPerMinute?: number;
 };
@@ -65,6 +68,7 @@ const STATIC_FILES: ReadonlyArray<[string, URL, string]> = [
   ['/chart.js', new URL('chart.js', PUBLIC_DIR), 'text/javascript; charset=utf-8'],
   ['/dom.js', new URL('dom.js', PUBLIC_DIR), 'text/javascript; charset=utf-8'],
   ['/ledger.js', new URL('ledger.js', PUBLIC_DIR), 'text/javascript; charset=utf-8'],
+  ['/race.js', new URL('race.js', PUBLIC_DIR), 'text/javascript; charset=utf-8'],
   // The self-contained browser build. The ESM build imports "ag-stack" by bare name, which a browser can't resolve.
   // The noStyle build, because the full one adds legacy-theme <style> tags on load, before a nonce can be set.
   ['/vendor/ag-grid.min.js', new URL('ag-grid-community/dist/ag-grid-community.min.noStyle.js', NODE_MODULES), 'text/javascript; charset=utf-8'],
@@ -123,6 +127,37 @@ export function createApp(deps: AppDeps) {
     return rulesRace(await deps.ledger(first.proofDate), DEMO_START, first.proofDate, RACE_END, first.amountCents);
   }
 
+  // The landing page's race: the first milestone's whole month, from recorded days only. No hold, no PayPal call.
+  // The rows never change while the server runs, so it's worked out once. A failed read is tried again next time.
+  let landingRace: Promise<Race> | null = null;
+  function wholeRace(): Promise<Race> {
+    const amountCents = DEMO_MILESTONES[0]?.amountCents ?? 0;
+    if (landingRace === null) {
+      landingRace = deps.ledger(RACE_END).then((rows) => rulesRace(rows, DEMO_START, RACE_END, RACE_END, amountCents));
+      landingRace.catch(() => { landingRace = null; });
+    }
+    return landingRace;
+  }
+
+  // What the agent may read about one milestone. PayPal's record reaches it as statuses and amounts,
+  // without the order ID, the authorization ID or anything about the buyer.
+  function agentCase(contract: Contract, index: number, verdict: Verdict): AgentCase {
+    const milestone = contract.milestones[index];
+    return {
+      key: `${contract.id}|${index}|${verdict.date}`,
+      verdict,
+      milestone: { number: index + 1, of: contract.milestones.length, title: milestone?.title ?? '', amountCents: milestone?.amountCents ?? 0 },
+      readDays: deps.ledger,
+      readRecord: async () => {
+        if (contract.authorizationId === null) return null;
+        const { record } = await deps.orderRecord(contract);
+        const check = checkRecord(record, contract);
+        const hold = record.authorizations.find((a) => a.id === contract.authorizationId) ?? null;
+        return { orderStatus: record.status, holdStatus: hold?.status ?? null, capturedCents: check.capturedCents, holdOpen: check.holdOpen, agrees: check.agrees };
+      },
+    };
+  }
+
   function redirect(res: ServerResponse, location: string) {
     res.writeHead(303, { Location: location });
     res.end();
@@ -167,6 +202,15 @@ export function createApp(deps: AppDeps) {
     }
 
     if (req.method === 'GET') {
+      if (path === '/api/race') {
+        try {
+          send(res, 200, { unit: DEMO_SOURCE.unit, race: await wholeRace() });
+        } catch (error) {
+          console.error('race read failed:', error instanceof Error ? error.message.slice(0, 200) : 'unknown error');
+          send(res, 503, { error: 'RACE_UNAVAILABLE' });
+        }
+        return true;
+      }
       if (path === '/paypal/return' || path === '/paypal/cancel') {
         const id = new URL(req.url ?? '/', 'http://localhost').searchParams.get('contract') ?? '';
         if (payments.get(id) === null) {
@@ -240,6 +284,20 @@ export function createApp(deps: AppDeps) {
       }
       const verdict = view.milestones.find((m) => m.isCurrent)?.verdict ?? null;
       send(res, 200, verdict === null ? { explanation: null } : await explain(verdict));
+      return true;
+    }
+
+    // Read-only like the explanation: it returns a proposal, and Release still needs a person's tap in http.ts.
+    const agentMatch = path.match(/^\/api\/contracts\/([^/]+)\/agent$/);
+    if (req.method === 'GET' && agentMatch?.[1] !== undefined) {
+      const contract = payments.get(agentMatch[1]);
+      if (contract === null) {
+        send(res, 404, { error: 'NOT_FOUND' });
+        return true;
+      }
+      const index = currentIndex(contract);
+      const verdict = contract.status === 'HELD' ? currentVerdict(contract) : null;
+      send(res, 200, { run: verdict === null || index < 0 ? null : await deps.agent.run(agentCase(contract, index, verdict)) });
       return true;
     }
 

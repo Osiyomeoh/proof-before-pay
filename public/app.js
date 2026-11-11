@@ -3,6 +3,7 @@
 import { drawChart, shortDate } from './chart.js';
 import { el } from './dom.js';
 import { createLedger } from './ledger.js';
+import { raceUpTo } from './race.js';
 
 const app = document.getElementById('app');
 const modeTag = document.getElementById('mode');
@@ -16,6 +17,7 @@ function icon(kind, size = 16) {
     arrow: 'M4 10h12M11 5l5 5-5 5',
     play: 'M7 4.5l8 5.5-8 5.5z',
     pause: 'M7 5v10M13 5v10',
+    copy: 'M7 7V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-3M4 7h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z',
   };
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   svg.setAttribute('viewBox', '0 0 20 20');
@@ -115,6 +117,9 @@ const STORY = [
 async function renderLanding() {
   const mode = await loadMode();
   const { button, notice } = holdStarter('Hold $100.00 and watch the check');
+  // Shown only once the race has loaded, so a failed read leaves no empty panel.
+  const raceSlot = el('div', { class: 'landing-race-slot', hidden: true });
+  renderLandingRace(raceSlot);
   const steps = [
     ['PayPal holds the money', 'The buyer approves a $100.00 authorization for two milestones. Nothing is captured.'],
     ['The data decides', 'A fixed rule compares this inverter with the others on the same roof and with measured sun.'],
@@ -144,6 +149,7 @@ async function renderLanding() {
         ))),
       ),
     ),
+    raceSlot,
     el('ol', { class: 'steps' }, ...steps.map(([title, text], i) => el('li', {}, el('span', { class: 'num mono' }, String(i + 1).padStart(2, '0')), el('b', {}, title), el('span', {}, text)))),
     renderPeople(),
     renderNeighbourPitch(mode),
@@ -198,8 +204,9 @@ function renderPeople() {
 }
 
 // ---------- Contract ----------
-const state = { tab: 'ai', id: null, view: null, json: '', notice: null, explanationKey: null, explanation: null, recordKey: null, record: null, excuse: { key: null, draft: '', busy: false, result: null }, confirmVoid: false, busy: false, holdNote: null, playing: false };
+const state = { tab: 'ai', id: null, view: null, json: '', notice: null, explanationKey: null, explanation: null, agentKey: null, agent: null, copied: null, recordKey: null, record: null, excuse: { key: null, draft: '', busy: false, result: null }, confirmVoid: false, busy: false, holdNote: null, playing: false };
 let explainTimer = 0;
+let agentTimer = 0;
 // Play waits at least this long between recorded days, so a fast connection doesn't blur the month.
 // Oct 12 to Nov 19 is 38 steps, so about 15 s on a local server. A distant host is slower, because each step is two requests.
 const PLAY_STEP_MS = 400;
@@ -227,6 +234,7 @@ async function refresh() {
   // While Play runs, the AI answer and PayPal's record wait for the last day, so a 38-day replay doesn't make 38 calls each.
   if (state.playing) return;
   loadExplanation();
+  loadAgent();
   loadRecord();
 }
 
@@ -332,6 +340,87 @@ function renderAi() {
     parts.push(el('div', { class: 'panel' }, ...renderExplanation(view, milestone)));
   }
   aiHost.replaceChildren(...parts);
+}
+
+// ---------- AI agent ----------
+// Claude with four read-only tools: the verdict, the recorded days, PayPal's record and a check on its own draft.
+// It proposes a next step. It sends nothing, and the Release button stays a person's to press.
+function loadAgent() {
+  if (state.view.kind === 'neighbour') return;
+  const index = state.view.milestones.findIndex((m) => m.isCurrent);
+  const verdict = index < 0 ? null : state.view.milestones[index].verdict ?? null;
+  const key = verdict === null || state.view.status !== 'HELD' ? null : `${index}|${verdict.date}|${verdict.status}`;
+  if (key === state.agentKey) return;
+  state.agentKey = key;
+  state.agent = null;
+  state.copied = null;
+  clearTimeout(agentTimer);
+  renderAgent();
+  if (key === null) return;
+  // A live run makes several model calls, so it waits a little longer than the explanation for the clicking to stop.
+  agentTimer = setTimeout(async () => {
+    const { ok, data } = await api(`/api/contracts/${encodeURIComponent(state.id)}/agent`).catch(() => ({ ok: false, data: {} }));
+    if (state.agentKey !== key) return;
+    state.agent = ok && data.run ? data.run : { failed: true };
+    renderAgent();
+  }, 1000);
+}
+
+function agentLabel(run) {
+  if (run.source === 'model') return `${run.model} on AWS Bedrock: ${run.calls} model call${run.calls === 1 ? '' : 's'}, its answer checked by the server.`;
+  if (run.source === 'recorded') return `Recorded run of ${run.model} on AWS Bedrock. Its tool calls were made again against this hold, and its answer passed the same checks.`;
+  if (run.fallbackReason === 'NO_MODEL') return 'Plain run: the same reads in a fixed order, with no saved AI run for this day.';
+  if (run.fallbackReason === 'CALL_LIMIT') return 'Plain run: the demo\'s AI call limit was reached.';
+  return `Plain run: the AI's answer was not used (${run.fallbackReason}).`;
+}
+
+const NEXT_TEXT = { ASK_INSTALLER: 'Ask the installer', PROPOSE_RELEASE: 'Release this milestone', WAIT: 'Wait' };
+
+let agentHost = null;
+function renderAgent() {
+  if (agentHost === null || state.view === null) return;
+  const view = state.view;
+  const milestone = currentMilestone(view);
+  const parts = [el('div', { class: 'push-head' },
+    el('h2', {}, 'AI agent'),
+    el('p', { class: 'limit' }, 'It has four read-only tools and no payment tools. It sends nothing and can\'t change the verdict or move money.'))];
+  const run = state.agent;
+  if (view.status !== 'HELD') {
+    parts.push(el('p', { class: 'text' }, view.status === 'AWAITING_APPROVAL' ? 'The agent starts watching once the hold is placed.' : 'This contract has finished, so there\'s nothing left to watch.'));
+  } else if (state.playing) {
+    parts.push(el('p', { class: 'text' }, 'The agent looks at the day Play stops on.'));
+  } else if (milestone === null || milestone.verdict === null) {
+    parts.push(el('p', { class: 'text' }, `Milestone ${milestone ? view.milestones.indexOf(milestone) + 1 : ''} opens on ${milestone?.opensOn ? fullDate(milestone.opensOn) : 'its date'}. The agent starts then.`));
+  } else if (run === null) {
+    parts.push(el('p', { class: 'label pulse' }, view.mode === 'sample' ? 'Replaying a recorded run…' : 'Working: reading the verdict, the days and PayPal\'s record…'),
+      el('p', { class: 'text quiet' }, view.mode === 'sample' ? 'Each saved tool call is made again against this hold.' : 'A live run makes a few model calls and takes about 20 seconds.'));
+  } else if (run.failed) {
+    parts.push(el('p', { class: 'text' }, 'The agent couldn\'t run just now. The verdict and the money on this page are unaffected.'));
+  } else {
+    parts.push(el('p', { class: 'label' }, agentLabel(run)));
+    parts.push(el('ol', { class: 'tool-steps' }, ...run.steps.map((step) => el('li', { class: step.ok ? 'ok' : 'no' },
+      el('code', {}, step.tool), el('span', {}, step.said)))));
+    parts.push(el('div', { class: `proposal ${run.nextStep === 'PROPOSE_RELEASE' ? 'go' : ''}` },
+      el('b', {}, `Proposed next step: ${NEXT_TEXT[run.nextStep] ?? run.nextStep}`),
+      el('p', {}, run.summary),
+      run.nextStep === 'PROPOSE_RELEASE' ? el('p', { class: 'note' }, 'The Release button above is yours to press. The agent can\'t press it.') : null,
+      run.nextStep === 'WAIT' ? el('p', { class: 'note' }, 'Nothing to do yet.') : null,
+    ));
+    if (run.nextStep === 'ASK_INSTALLER' && run.messageToInstaller) {
+      const message = run.messageToInstaller;
+      const copy = el('button', { class: 'btn', type: 'button', on: { click: () => {
+        const done = (ok) => { if (state.agent === run) { state.copied = ok; renderAgent(); } };
+        (navigator.clipboard?.writeText(message) ?? Promise.reject(new Error('no clipboard'))).then(() => done(true), () => done(false));
+      } } }, icon('copy', 14), 'Copy');
+      parts.push(el('div', { class: 'ask' },
+        el('b', {}, 'Draft to the installer. Not sent'),
+        el('p', { class: 'draft' }, message),
+        el('div', { class: 'copy-row' }, copy, state.copied === null ? null : el('span', { class: 'note', role: 'status' },
+          state.copied ? 'Copied. Send it yourself if you want to.' : 'Couldn\'t copy here. Select the text instead.')),
+      ));
+    }
+  }
+  agentHost.replaceChildren(...parts);
 }
 
 // ---------- Excuse check ----------
@@ -507,6 +596,7 @@ async function play() {
   if (state.view === null) return;
   render();
   loadExplanation();
+  loadAgent();
   loadRecord();
 }
 
@@ -662,30 +752,35 @@ const dayCount = (from, to) => Math.round((Date.parse(`${to}T00:00:00Z`) - Date.
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const isReleased = (milestone) => milestone.status === 'CAPTURED' || milestone.status === 'PENDING';
 
-function raceWords(view, race) {
+// `hint` ends the opening line, so the hold page can point at Play and the landing page can stay quiet.
+function raceWords(race, { unit, released, ready, hint }) {
   const amount = usd(race.amountCents);
-  const unit = view.source.unit;
-  const first = view.milestones[0];
   const after = `${plural(race.underFloorSincePaid, 'day')} under 30% of usual${race.noReadingSincePaid > 0 ? ` and ${race.noReadingSincePaid} with no reading` : ''}`;
   const looking = race.simplePaidOn === null ? 'The one-good-day rule hadn\'t paid either.' : `The one-good-day rule had paid on ${shortDate(race.simplePaidOn)}. After that, ${unit} had ${after}.`;
-  if (isReleased(first)) return [`A person released the ${amount} on ${shortDate(race.through)}.`, looking];
-  if (first.verdict?.status === 'RELEASE_READY') return [`This check passed on ${shortDate(race.oursReadyOn ?? race.through)}. A person can release the ${amount}.`, looking];
+  if (released) return [`A person released the ${amount} on ${shortDate(race.through)}.`, looking];
+  if (ready) return [`This check passed on ${shortDate(race.oursReadyOn ?? race.through)}. A person can release the ${amount}.`, looking];
   if (race.simplePaidOn !== null) {
     const since = race.underFloorSincePaid + race.noReadingSincePaid === 0
       ? `It paid on the first day ${unit} reached 70% of its usual share. This check needs a 7-day average of 70%, with no day under 30%.`
       : `Since then, ${unit} has had ${after}.`;
     return [`The one-good-day rule paid the ${amount} on ${shortDate(race.simplePaidOn)}. This check is still holding it.`, since];
   }
-  return [`Both rules are still holding the ${amount}.`, `The one-good-day rule pays on the first day ${unit} reaches 70% of its usual share.${state.playing ? '' : ' Press Play to watch the month.'}`];
+  return [`Both rules are still holding the ${amount}.`, `The one-good-day rule pays on the first day ${unit} reaches 70% of its usual share.${hint}`];
 }
 
 function renderRace(view) {
-  const race = view.race;
-  if (!race) return null;
-  const amount = usd(race.amountCents);
+  if (!view.race) return null;
   const first = view.milestones[0];
-  const released = isReleased(first);
-  const ready = first.verdict?.status === 'RELEASE_READY';
+  const opts = { unit: view.source.unit, released: isReleased(first), ready: first.verdict?.status === 'RELEASE_READY', hint: state.playing ? '' : ' Press Play to watch the month.' };
+  return el('section', { class: 'card race', ariaLabel: `${usd(view.race.amountCents)} under two pay rules` },
+    el('p', { class: 'kicker' }, `Same ${usd(view.race.amountCents)}, two rules`),
+    ...raceParts(view.race, opts),
+  );
+}
+
+// The headline, the line under it, the three tracks and the key. The hold page and the landing page draw the same parts.
+function raceParts(race, { unit, released, ready, hint }) {
+  const amount = usd(race.amountCents);
   const seen = new Map(race.days.map((day) => [day.date, day]));
   const dates = Array.from({ length: dayCount(race.from, race.end) + 1 }, (_, k) => addDays(race.from, k));
   const tip = (day, text) => `${fullDate(day.date)}: ${text}`;
@@ -726,15 +821,14 @@ function renderRace(view) {
     mark.style.gridColumn = `${dayCount(race.from, race.simplePaidOn) + 1} / -1`;
     axis.append(mark);
   }
-  const [headline, sub] = raceWords(view, race);
+  const [headline, sub] = raceWords(race, { unit, released, ready, hint });
   const key = (kind, text) => el('span', {}, el('i', { class: `k-${kind}` }), text);
 
-  return el('section', { class: 'card race', ariaLabel: `${amount} under two pay rules` },
-    el('p', { class: 'kicker' }, `Same ${amount}, two rules`),
+  return [
     el('h2', {}, headline),
     el('p', { class: 'race-sub' }, sub),
     el('div', { class: 'race-rows' },
-      row(label(view.source.unit, 'share of usual', 'quiet'), bars),
+      row(label(unit, 'share of usual', 'quiet'), bars),
       row(label('Pays after one good day', race.simplePaidOn === null ? 'holding' : `paid ${shortDate(race.simplePaidOn)}`, race.simplePaidOn === null ? 'held' : 'paid'), simple),
       row(label('This check', released ? 'released' : ready ? 'passed' : 'holding', released || ready ? 'ready' : 'held'), ours),
       row(el('div', { class: 'race-label' }), axis),
@@ -746,7 +840,81 @@ function renderRace(view) {
       key('gone-none', 'Already paid, no reading'),
       key('ready', 'Check passes'),
     ),
-  );
+  ];
+}
+
+// ---------- The race on the landing page ----------
+// The same month and the same drawing as the hold page, with no hold behind it. It plays once when it scrolls into view,
+// one recorded day at a time, and stops longer where the two rules part. With reduced motion it opens on the last day.
+const RACE_STEP_MS = 320;
+const RACE_PAUSE_MS = 1600;
+
+function renderLandingRace(slot) {
+  let race = null;
+  let unit = '';
+  let shown = 0;
+  let timer = null;
+  const when = el('span', { class: 'race-now mono' });
+  const button = el('button', { class: 'btn race-replay', type: 'button', on: { click: () => (timer === null ? play() : stop()) } });
+  const body = el('div', { class: 'race-body' });
+  const draw = () => {
+    const now = raceUpTo(race, shown);
+    when.textContent = fullDate(now.through);
+    body.replaceChildren(...raceParts(now, { unit, released: false, ready: now.oursReadyOn !== null, hint: '' }));
+    const done = shown >= race.days.length;
+    button.replaceChildren(icon(timer === null ? 'play' : 'pause', 14), timer === null ? (done ? 'Replay' : 'Play') : 'Pause');
+  };
+  const stop = () => {
+    clearTimeout(timer);
+    timer = null;
+    draw();
+  };
+  const tick = () => {
+    shown += 1;
+    const before = raceUpTo(race, shown - 1);
+    const now = raceUpTo(race, shown);
+    const parted = now.simplePaidOn !== null && before.simplePaidOn === null;
+    const passed = now.oursReadyOn !== null && before.oursReadyOn === null;
+    if (shown >= race.days.length) {
+      timer = null;
+      draw();
+      return;
+    }
+    timer = setTimeout(tick, parted || passed ? RACE_PAUSE_MS : RACE_STEP_MS);
+    draw();
+  };
+  const play = () => {
+    if (shown >= race.days.length) shown = 1;
+    timer = setTimeout(tick, RACE_STEP_MS);
+    draw();
+  };
+
+  api('/api/race').then(({ ok, data }) => {
+    if (!ok || !data.race || data.race.days.length === 0) return;
+    race = data.race;
+    unit = data.unit;
+    const amount = usd(race.amountCents);
+    slot.replaceChildren(el('section', { class: 'card race landing-race', ariaLabel: `${amount} under two pay rules, ${fullDate(race.from)} to ${fullDate(race.end)}` },
+      el('div', { class: 'race-top' },
+        el('p', { class: 'kicker' }, `Same ${amount}, two rules`),
+        el('span', { class: 'race-replaying' }, 'Replaying ', when),
+        button,
+      ),
+      body,
+      el('p', { class: 'race-note' }, `${unit}'s recorded days, judged by the same code as a real hold. Nothing is held and no money moves here. Start a hold above to try Release yourself.`),
+    ));
+    slot.hidden = false;
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    shown = still ? race.days.length : 1;
+    draw();
+    if (still || !('IntersectionObserver' in window)) return;
+    const watch = new IntersectionObserver((entries) => {
+      if (!entries.some((entry) => entry.isIntersecting)) return;
+      watch.disconnect();
+      if (timer === null && shown === 1) play();
+    }, { threshold: 0.4 });
+    watch.observe(slot);
+  }).catch(() => {});
 }
 
 // The chart's shaded band: the 7 judged days, or the days of the billing week seen so far.
@@ -1077,6 +1245,7 @@ function renderLimits(view) {
 function renderNeighbour(view) {
   boardHost = null;
   aiHost = null;
+  agentHost = null;
   app.replaceChildren(renderClock(view), el('div', { class: 'stage' },
     el('div', { class: 'main-col' }, renderWeekCard(view), renderEvidence(view), renderLimits(view)),
     el('div', { class: 'side-col' }, renderMoney(view)),
@@ -1094,11 +1263,13 @@ function render() {
     app.replaceChildren(boardHost, ledger.section);
   }
   aiHost = el('section', { class: 'card push' });
+  agentHost = el('section', { class: 'card agent', ariaLabel: 'AI agent' });
   boardHost.replaceChildren(...[renderClock(view), renderRace(view), el('div', { class: 'stage' },
-    el('div', { class: 'main-col' }, renderVerdict(view), renderEvidence(view), aiHost),
+    el('div', { class: 'main-col' }, renderVerdict(view), agentHost, renderEvidence(view), aiHost),
     el('div', { class: 'side-col' }, renderMoney(view)),
   )].filter(Boolean));
   renderAi();
+  renderAgent();
   renderRecord();
   drawChart(chartHost, chartDays, chartWindow, chartLabel);
   // The table catches up when Play stops, rather than rebuilding its grid every recorded day.

@@ -59,6 +59,15 @@ test('the race stops at the day being judged, and only its drawing reaches furth
   assert.equal(rulesRace(rows, '2020-10-12', '2020-11-25', '2020-11-19', 4000).end, '2020-11-25');
 });
 
+test('the landing page cuts the race in the browser exactly as the server does, on every day of the month', async () => {
+  // Loaded by URL: public/ is plain browser JavaScript, outside the type-checked tree.
+  const { raceUpTo } = (await import(new URL('../public/race.js', import.meta.url).href)) as { raceUpTo: (race: unknown, count: number) => unknown };
+  const whole = rulesRace(rows, '2020-10-12', '2020-11-19', '2020-11-19', 4000);
+  whole.days.forEach((day, k) => {
+    assert.deepEqual(raceUpTo(whole, k + 1), rulesRace(rows, '2020-10-12', day.date, '2020-11-19', 4000), day.date);
+  });
+});
+
 test('through a date, no later row is returned', async () => {
   const ledger = createLedger(fleet, '01', lastDate);
   const until = await ledger.through('2020-10-12');
